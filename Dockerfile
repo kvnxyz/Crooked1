@@ -1,8 +1,8 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /app
 
-COPY CrookedAPI.sln ./
-COPY CrookedAPI/*.csproj ./CrookedAPI/
+COPY src/CrookedAPI.sln ./
+COPY src/CrookedAPI/*.csproj ./CrookedAPI/
 RUN dotnet restore
 
 COPY . ./
