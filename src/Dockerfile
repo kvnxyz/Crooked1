@@ -10,3 +10,4 @@ RUN dotnet publish ./CrookedAPI/CrookedAPI.csproj -c Release --no-restore -o ./o
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /app/out ./
+ENTRYPOINT ["dotnet", "CrookedAPI.dll"]
