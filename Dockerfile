@@ -1,11 +1,11 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
-COPY CrookedAPI.sln ./
-COPY CrookedAPI/*.csproj ./CrookedAPI/
+COPY src/CrookedAPI.sln ./
+COPY src/CrookedAPI/*.csproj ./CrookedAPI/
 RUN dotnet restore
 
-COPY . ./
+COPY src/ ./
 RUN dotnet publish CrookedAPI/CrookedAPI.csproj -c Release -o out
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
