@@ -259,6 +259,14 @@ function submitReset(event) {
         return;
     }
 
+    const newPassword = resetFields[2];
+    if (!UI.isValidPassword(newPassword.value)) {
+        newPassword.setAttribute('aria-invalid', 'true');
+        newPassword.focus();
+        setMessage(resetMessage, 'The new password does not meet all the rules listed under it.', 'error');
+        return;
+    }
+
     showDialog(
         'Update Password',
         `Set a new password for "${resetFields[0].value.trim()}"?`,
@@ -301,6 +309,7 @@ async function sendReset() {
     }
 }
 
+UI.passwordChecklist(resetFields[2], document.getElementById('new-password-rules'));
 document.getElementById('forgot-password-link').addEventListener('click', openReset);
 resetForm.addEventListener('submit', submitReset);
 resetModal.querySelectorAll('[data-close-reset]').forEach(button => {

@@ -12,6 +12,7 @@ const focusableSelector = [
 const grid = document.getElementById("productGrid");
 const productSearch = document.getElementById("productSearch");
 const productSearchStatus = document.getElementById("productSearchStatus");
+const categoryTabs = document.getElementById("categoryTabs");
 const checkoutList = document.getElementById("checkoutList");
 const checkoutEmpty = document.getElementById("checkoutEmpty");
 const checkoutTotal = document.getElementById("checkoutTotal");
@@ -310,6 +311,12 @@ function switchToDashboard() {
 ========================= */
 let productGroups = [];
 let selectedVariants = [];
+let activeCategory = "All";
+let shownCategories = "";
+
+function groupInStock(variants) {
+  return variants.some(variant => variant.stock_Quantity > 0);
+}
 
 function variantSizeOf(product) {
   return product.size?.trim() || "One Size";
@@ -338,7 +345,10 @@ async function loadProducts() {
       if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey).push(product);
     });
-    productGroups = [...groups.values()];
+    // Products with stock come first and out-of-stock ones go to the bottom; each part
+    // keeps the API's A–Z order.
+    productGroups = [...groups.values()].sort((a, b) => groupInStock(b) - groupInStock(a));
+    renderCategoryTabs();
     renderProductGrid();
   } catch (err) {
     console.error("Error loading products:", err);
@@ -350,12 +360,53 @@ async function loadProducts() {
   }
 }
 
+// "All" plus one button per category the products use. The buttons are rebuilt only when
+// the categories change, so a live refresh does not take focus off the button in use.
+function renderCategoryTabs() {
+  const categories = [...new Set(productGroups.map(variants => variants[0].category).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+  if (!categories.includes(activeCategory)) activeCategory = "All";
+
+  const key = JSON.stringify(categories);
+  if (key !== shownCategories) {
+    shownCategories = key;
+    categoryTabs.replaceChildren(...["All", ...categories].map(category => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "tab-btn";
+      button.dataset.category = category;
+      button.textContent = category;
+      button.addEventListener("click", () => setActiveCategory(category));
+      return button;
+    }));
+    categoryTabs.hidden = !categories.length;
+  }
+  markActiveCategory();
+}
+
+function markActiveCategory() {
+  categoryTabs.querySelectorAll(".tab-btn").forEach(button => {
+    const isActive = button.dataset.category === activeCategory;
+    button.classList.toggle("active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+}
+
+function setActiveCategory(category) {
+  activeCategory = category;
+  markActiveCategory();
+  renderProductGrid();
+}
+
+// Search and the category buttons filter together.
 function renderProductGrid() {
   const searchTerm = productSearch.value.trim().toLowerCase();
+  const isFiltered = Boolean(searchTerm) || activeCategory !== "All";
   grid.replaceChildren();
 
   const visibleGroups = productGroups.filter(variants =>
-    variants.some(product => [
+    (activeCategory === "All" || variants[0].category === activeCategory)
+    && variants.some(product => [
       product.product_Name,
       product.category,
       product.size,
@@ -418,11 +469,13 @@ function renderProductGrid() {
   });
 
   if (!visibleGroups.length) {
-    showGridMessage(searchTerm ? "No products match your search." : "No products available.");
+    showGridMessage(searchTerm
+      ? "No products match your search."
+      : activeCategory !== "All" ? `No products in ${activeCategory}.` : "No products available.");
   }
 
   const plural = productGroups.length === 1 ? "" : "s";
-  productSearchStatus.textContent = searchTerm
+  productSearchStatus.textContent = isFiltered
     ? `Showing ${visibleGroups.length} of ${productGroups.length} product${plural}.`
     : `${productGroups.length} product${plural} available.`;
 }
@@ -780,7 +833,14 @@ amountReceivedInput.addEventListener("input", () => {
   updateChange();
 });
 
-gcashRefInput.addEventListener("input", () => gcashRefInput.removeAttribute("aria-invalid"));
+// GCash reference numbers are 13 digits. Anything else typed or pasted (spaces, dashes,
+// letters) is dropped, so "1009 123 456789" becomes "1009123456789".
+const GCASH_REF_DIGITS = 13;
+
+gcashRefInput.addEventListener("input", () => {
+  gcashRefInput.value = gcashRefInput.value.replace(/\D/g, "").slice(0, GCASH_REF_DIGITS);
+  gcashRefInput.removeAttribute("aria-invalid");
+});
 
 document.getElementById("cashForm").addEventListener("submit", event => {
   event.preventDefault();
@@ -815,16 +875,16 @@ document.getElementById("gcashForm").addEventListener("submit", event => {
 
   const refId = gcashRefInput.value.trim();
 
-  if (!refId) {
+  if (!/^\d+$/.test(refId)) {
     gcashRefInput.setAttribute("aria-invalid", "true");
-    showToast("Please enter a reference ID.", true);
+    showToast("Please enter the GCash reference number (numbers only).", true);
     return;
   }
 
   const tx = buildTransaction("GCash", null, null, refId);
   showDialog(
     "Complete Sale",
-    `Record a GCash payment of ${formatPeso(tx.total_amount)} with reference ID ${refId}?`,
+    `Record a GCash payment of ${formatPeso(tx.total_amount)} with reference number ${refId}?`,
     () => completeSale(tx, "gcashModal", document.getElementById("confirmGCashBtn")),
     null,
     { confirmText: "Complete Sale" }

@@ -7,8 +7,8 @@
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="../design/dashboard.css?v=23">
-    <link rel="stylesheet" href="../design/components.css?v=3">
-    <link rel="stylesheet" href="../design/staff-management.css?v=2">
+    <link rel="stylesheet" href="../design/components.css?v=4">
+    <link rel="stylesheet" href="../design/staff-management.css?v=3">
 
     <!-- Applies the saved theme before the page is drawn, so the page never flashes the wrong colours. -->
     <script src="../javascript/theme.js?v=2"></script>
@@ -113,9 +113,11 @@
                         </div>
                         <div class="form-field">
                             <label for="staffPass">Password</label>
-                            <input type="password" id="staffPass" autocomplete="new-password" required>
+                            <input type="password" id="staffPass" autocomplete="new-password" maxlength="64" required>
                         </div>
                         <button type="submit" class="btn btn-primary">Create Account</button>
+                        <!-- ui.js fills in the password rules and ticks them off while the password is typed. -->
+                        <ul id="staffPassRules" class="password-rules" aria-label="Password rules"></ul>
                     </form>
                 </section>
 
@@ -162,10 +164,10 @@
         </main>
     </div>
 
-    <script src="../javascript/ui.js?v=3"></script>
+    <script src="../javascript/ui.js?v=4"></script>
     <script src="../javascript/live.js?v=2"></script>
     <script src="../javascript/layout.js?v=5"></script>
-    <script src="../javascript/staff-management.js?v=4"></script>
+    <script src="../javascript/staff-management.js?v=5"></script>
 
 </body>
 </html>

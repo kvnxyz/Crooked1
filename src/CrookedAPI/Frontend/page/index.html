@@ -6,7 +6,7 @@
     <title>CRKD | Login</title>
     <link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../design/index.css?v=4">
-    <link rel="stylesheet" href="../design/components.css?v=3">
+    <link rel="stylesheet" href="../design/components.css?v=4">
 
     <!-- Applies the saved theme before the page is drawn, so the page never flashes the wrong colours. -->
     <script src="../javascript/theme.js?v=2"></script>
@@ -76,7 +76,10 @@
 
                 <div class="form-field">
                     <label for="new-password">New password</label>
-                    <input type="password" id="new-password" name="new-password" autocomplete="new-password" required>
+                    <input type="password" id="new-password" name="new-password" autocomplete="new-password"
+                        maxlength="64" required>
+                    <!-- ui.js fills in the password rules and ticks them off while the password is typed. -->
+                    <ul id="new-password-rules" class="password-rules" aria-label="Password rules"></ul>
                 </div>
 
                 <p id="reset-msg" class="form-message" role="status" aria-live="polite"></p>
@@ -89,7 +92,7 @@
         </div>
     </div>
 
-    <script src="../javascript/ui.js?v=3"></script>
-    <script src="../javascript/index.js?v=2"></script>
+    <script src="../javascript/ui.js?v=4"></script>
+    <script src="../javascript/index.js?v=3"></script>
 </body>
 </html>

@@ -11,6 +11,11 @@
     min-width: 160px;
 }
 
+/* Password rules: a full-width row under the fields */
+.staff-form .password-rules {
+    grid-column: 1 / -1;
+}
+
 .table-container {
     max-height: 320px;
 }

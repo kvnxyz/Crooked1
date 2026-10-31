@@ -39,6 +39,7 @@ var frontend = Path.Combine(app.Environment.ContentRootPath, "Frontend");
 var pages = new PhysicalFileProvider(Path.Combine(frontend, "page"));
 var uploads = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
 Directory.CreateDirectory(uploads);
+ProductImages.RestoreBuiltIn(app.Environment.ContentRootPath);
 
 app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = pages });
 app.UseStaticFiles(new StaticFileOptions { FileProvider = pages });

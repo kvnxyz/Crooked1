@@ -184,6 +184,11 @@ namespace Crooked.Controllers
         [LiveUpdate(LiveTopics.Staff)]
         public IActionResult RegisterStaff([FromBody] User request)
         {
+            if (!PasswordPolicy.IsValid(request.Password))
+            {
+                return BadRequest(new { message = PasswordPolicy.Description });
+            }
+
             using (var connection = new NpgsqlConnection(_connectionString))
             {
                 connection.Open();
@@ -208,6 +213,11 @@ public IActionResult ResetPassword([FromBody] ResetRequest request)
     if (request.RecoveryKey != masterRecoveryKey)
     {
         return BadRequest(new { message = "Invalid Recovery Key!" });
+    }
+
+    if (!PasswordPolicy.IsValid(request.NewPassword))
+    {
+        return BadRequest(new { message = PasswordPolicy.Description });
     }
 
     try

@@ -1,5 +1,5 @@
 // Shared UI building blocks: skeleton loaders, table states, badges, pagination,
-// toasts, loading buttons, file pickers, the small-screen blocker and small helpers.
+// toasts, loading buttons, file pickers, password rules, the small-screen blocker and small helpers.
 // Every page loads it (with components.css) before its own scripts and uses it
 // through the UI namespace.
 const UI = (() => {
@@ -362,6 +362,39 @@ const UI = (() => {
     }
 
     /* =========================
+       PASSWORD RULES
+    ========================= */
+    // The same rules as PasswordPolicy on the server (api/Models/User.cs).
+    const PASSWORD_RULES = [
+        { text: '8 to 64 characters', test: value => value.length >= 8 && value.length <= 64 },
+        { text: 'An uppercase letter (A–Z)', test: value => /[A-Z]/.test(value) },
+        { text: 'A lowercase letter (a–z)', test: value => /[a-z]/.test(value) },
+        { text: 'A number (0–9)', test: value => /\d/.test(value) },
+        { text: 'A symbol, such as ! @ # $', test: value => /[^A-Za-z0-9\s]/.test(value) },
+        { text: 'No spaces', test: value => !/\s/.test(value) }
+    ];
+
+    function isValidPassword(password) {
+        return PASSWORD_RULES.every(rule => rule.test(password));
+    }
+
+    // Fills list (a <ul class="password-rules">) with the rules and ticks each one off while
+    // the password is typed. The input is described by the list, so screen readers read the rules.
+    function passwordChecklist(input, list) {
+        const items = PASSWORD_RULES.map(rule => el('li', 'password-rule', rule.text));
+        list.replaceChildren(...items);
+        input.setAttribute('aria-describedby',
+            [input.getAttribute('aria-describedby'), list.id].filter(Boolean).join(' '));
+
+        const update = () => PASSWORD_RULES.forEach((rule, index) => {
+            items[index].classList.toggle('is-met', input.value !== '' && rule.test(input.value));
+        });
+        input.addEventListener('input', update);
+        input.form?.addEventListener('reset', () => setTimeout(update));
+        update();
+    }
+
+    /* =========================
        SMALL-SCREEN BLOCKER
     ========================= */
     // components.css shows this notice, and hides everything else, on screens under 768px wide.
@@ -438,6 +471,8 @@ const UI = (() => {
         toast,
         setLoading,
         filePickerButton,
+        isValidPassword,
+        passwordChecklist,
         download
     };
 })();

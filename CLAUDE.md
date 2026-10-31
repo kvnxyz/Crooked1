@@ -21,7 +21,8 @@ src/
       Models/                   # request DTOs, read models (TransactionViews), sheet rows, value lists, ExchangePolicy
       Services/                 # ThresholdForecastService, TransactionStore (shared reads),
                                 # TransactionExcel (xlsx export/import), ShopClock (UTC <-> PH time),
-                                # LiveUpdates + [LiveUpdate] (Supabase Realtime broadcasts)
+                                # LiveUpdates + [LiveUpdate] (Supabase Realtime broadcasts),
+                                # ProductImages (restores committed photos into the Railway volume)
     Frontend/
       page/                     # one .html per page
       design/                   # one .css per page, plus dashboard.css (admin base) and components.css (shared components)
@@ -79,4 +80,4 @@ Pages:
 - Local: `dotnet run --project src/CrookedAPI`, then open http://localhost:5055.
 - Railway builds the root `Dockerfile`. The Dockerfile finds `CrookedAPI.csproj` itself, so the build works whether the service's Root Directory is empty or `src`. The app listens on Railway's `PORT` variable, and Program.cs handles that.
 - Production runs on Linux, so file names are case-sensitive. Links must match file names exactly; for example, `PointofSale.html` and `PointofSale.css` but `PointOfSale.js`.
-- Uploaded product images in `wwwroot` are lost on every redeploy unless a Railway volume is mounted at `/app/wwwroot/images/products`.
+- Uploaded product images are kept in a Railway volume mounted at `/app/wwwroot/images/products`; without it they are lost on every redeploy. The volume hides the images committed to git, so the Dockerfile keeps a copy in `/app/product-images` and `ProductImages.RestoreBuiltIn` (called from Program.cs) copies any missing ones into the volume at startup.

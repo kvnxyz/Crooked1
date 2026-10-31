@@ -11,4 +11,9 @@ RUN csproj="$(find . -name CrookedAPI.csproj -not -path '*/obj/*' | head -n 1)" 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /app .
+
+# The Railway volume mounted at /app/wwwroot/images/products hides the product photos built
+# into the image, so keep a copy here; the app copies missing ones into the volume at startup.
+RUN mkdir -p wwwroot/images/products && cp -a wwwroot/images/products product-images
+
 ENTRYPOINT ["dotnet", "CrookedAPI.dll"]

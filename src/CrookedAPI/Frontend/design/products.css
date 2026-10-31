@@ -47,37 +47,7 @@
     padding-left: 36px;
 }
 
-/* Category filter buttons */
-.category-tabs {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.tab-btn {
-    min-width: var(--button-min-width-sm);
-    min-height: 36px;
-    padding: 0 16px;
-    border: 1px solid var(--color-border-strong);
-    border-radius: var(--radius-md);
-    background: var(--color-surface);
-    color: var(--color-text-muted);
-    font-size: var(--font-size-md);
-    font-weight: 700;
-    cursor: pointer;
-    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.tab-btn:hover {
-    background: var(--color-surface-2);
-    color: var(--color-text);
-}
-
-.tab-btn.active {
-    background: var(--color-primary);
-    border-color: var(--color-primary);
-    color: var(--color-on-primary);
-}
+/* Category filter buttons: .category-tabs and .tab-btn are in components.css */
 
 /* Product grid */
 .product-grid {

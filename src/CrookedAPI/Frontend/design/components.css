@@ -2,7 +2,8 @@
    CRKD SHARED COMPONENTS
    Confirmation dialogs, skeleton loaders, table states, badges,
    pagination, toolbars, toasts, loading buttons, file pickers,
-   the live-update status and the small-screen blocker.
+   dropdowns, category buttons, password rules, the live-update
+   status and the small-screen blocker.
    ui.js and live.js build the markup.
 
    Every page loads it after its base stylesheet (dashboard.css,
@@ -249,6 +250,80 @@ html[data-theme="light"] .mobile-blocker-logo {
             margin-left: auto;
         }
     }
+}
+
+/* =========================
+   CATEGORY BUTTONS (Products page and POS)
+   Toggle buttons in a role="group"; the chosen one has .active and aria-pressed="true".
+========================= */
+.category-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.tab-btn {
+    min-width: var(--button-min-width-sm, 80px);
+    min-height: 36px;
+    padding: 0 16px;
+    border: 1px solid var(--color-border-strong);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    color: var(--color-text-muted);
+    font-size: var(--font-size-md);
+    font-weight: 700;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.tab-btn:hover {
+    background: var(--color-surface-2);
+    color: var(--color-text);
+}
+
+.tab-btn.active {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: var(--color-on-primary);
+}
+
+/* =========================
+   PASSWORD RULES (UI.passwordChecklist)
+   Each rule gets a tick once the typed password meets it.
+========================= */
+.password-rules {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 4px 16px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    color: var(--color-text-subtle);
+    font-size: var(--font-size-xs);
+}
+
+.password-rule {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* The alternative text after "/" tells screen readers whether the rule is met. */
+.password-rule::before {
+    flex: 0 0 12px;
+    content: "\25CB";
+    content: "\25CB" / "Not met: ";
+    text-align: center;
+}
+
+.password-rule.is-met {
+    color: var(--color-success);
+}
+
+.password-rule.is-met::before {
+    content: "\2713";
+    content: "\2713" / "Met: ";
+    font-weight: 700;
 }
 
 /* =========================

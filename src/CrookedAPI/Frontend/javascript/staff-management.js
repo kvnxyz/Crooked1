@@ -112,14 +112,24 @@ async function unarchiveStaff(id, staffName) {
 ========================= */
 async function addStaff(event) {
     event?.preventDefault();
+    const passwordInput = document.getElementById('staffPass');
     const fullName = document.getElementById('staffName').value.trim();
     const username = document.getElementById('staffUser').value.trim();
-    const password = document.getElementById('staffPass').value.trim();
+    // Not trimmed: spaces break the password rules, so they are shown instead of removed.
+    const password = passwordInput.value;
 
     if (!fullName || !username || !password) {
         showToast('Please fill in all fields.', true);
         return;
     }
+
+    if (!UI.isValidPassword(password)) {
+        passwordInput.setAttribute('aria-invalid', 'true');
+        passwordInput.focus();
+        showDialog('Password Too Weak', 'The password does not meet all the rules listed under the form.');
+        return;
+    }
+    passwordInput.removeAttribute('aria-invalid');
 
     showDialog(
         'Create Staff Account',
@@ -140,13 +150,12 @@ async function submitStaffAccount(fullName, username, password) {
 
         if (response.ok) {
             showToast('Staff account created successfully.', false);
-            document.getElementById('staffName').value = '';
-            document.getElementById('staffUser').value = '';
-            document.getElementById('staffPass').value = '';
+            // reset() also clears the ticks on the password rules.
+            document.getElementById('staffPass').form.reset();
             fetchStaff();
         } else {
-            const err = await response.text();
-            showToast('Error: ' + err, true);
+            const err = await response.json().catch(() => ({}));
+            showToast('Error: ' + (err.message || `Account could not be created (${response.status}).`), true);
         }
     } catch (error) {
         console.error('Create Staff Error:', error);
@@ -158,6 +167,7 @@ async function submitStaffAccount(fullName, username, password) {
    PAGE LOAD
 ========================= */
 document.addEventListener('DOMContentLoaded', () => {
+    UI.passwordChecklist(document.getElementById('staffPass'), document.getElementById('staffPassRules'));
     fetchStaff();
     Live.on(['staff'], () => fetchStaff({ quiet: true }));
 });
