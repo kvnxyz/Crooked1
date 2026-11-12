@@ -30,6 +30,12 @@ CREATE TABLE IF NOT EXISTS forecast_notifications (
 CREATE INDEX IF NOT EXISTS idx_forecast_notifications_unread
     ON forecast_notifications (is_read, created_at DESC);
 
+-- Products added without a photo used to point at /images/default-product.png, a file that never
+-- existed, so every page asked for it and got a 404. No photo is now an empty image_url, which
+-- the pages show as their placeholder.
+UPDATE products SET image_url = '' WHERE image_url = '/images/default-product.png';
+UPDATE forecast_notifications SET image_url = '' WHERE image_url = '/images/default-product.png';
+
 -- The latest sales forecast for each product (one row per size and color), written by
 -- ThresholdForecastService. method is 'ml' (the ML.NET model) or 'average' (the 7-day average),
 -- and reason says why the average was used. model_error and average_error are each method's

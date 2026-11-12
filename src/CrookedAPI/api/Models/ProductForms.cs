@@ -39,8 +39,6 @@ namespace Crooked.Models
         public const int MaxVariantLength = 30;
         public const int MaxNameLength = 100;
         public const int MaxCategoryLength = 50;
-        // Saved as a product's photo when none was chosen.
-        public const string DefaultImageUrl = "/images/default-product.png";
 
         public static string Clean(string? value) => (value ?? "").Trim();
 

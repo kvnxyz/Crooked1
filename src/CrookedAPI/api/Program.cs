@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.FileProviders;
 using Crooked;
 using Crooked.Models;
@@ -81,10 +82,21 @@ var uploads = Path.Combine(app.Environment.ContentRootPath, "wwwroot");
 Directory.CreateDirectory(uploads);
 ProductImages.RestoreBuiltIn(app.Environment.ContentRootPath);
 
+// Browsers check an HTML page for changes on every visit (cheap, thanks to its ETag) instead of
+// reusing an old copy. Otherwise a browser can keep an old page after a deploy, with its old
+// ?v= script links, and run old scripts against the new API.
+static void RevalidatePages(StaticFileResponseContext context)
+{
+    if (context.File.Name.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+    {
+        context.Context.Response.Headers.CacheControl = "no-cache";
+    }
+}
+
 app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = pages });
-app.UseStaticFiles(new StaticFileOptions { FileProvider = pages });
+app.UseStaticFiles(new StaticFileOptions { FileProvider = pages, OnPrepareResponse = RevalidatePages });
 // Pages link to ../page, ../design, ../javascript and ../assets, so Frontend is also served from the root.
-app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(frontend) });
+app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(frontend), OnPrepareResponse = RevalidatePages });
 app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(uploads) });
 
 app.UseAuthentication();

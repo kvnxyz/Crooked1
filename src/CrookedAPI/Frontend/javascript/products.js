@@ -191,10 +191,6 @@ const productsById = new Map();
 let productGroups = new Map();
 let activeCategory = 'All';
 
-// The API saves this path when no photo was chosen. Products added before sizes could share a
-// photo may have it on some sizes, so it never takes the place of a real photo on the card.
-const DEFAULT_PRODUCT_IMAGE = '/images/default-product.png';
-
 const groupKeyOf = product => JSON.stringify([product.product_name, product.category]);
 
 // By color, then from the smallest size to the largest.
@@ -239,9 +235,9 @@ function priceLabel(variants) {
     return lowest === highest ? peso(lowest) : `${peso(lowest)}–${peso(highest)}`;
 }
 
+// The first size or color that has a photo; an empty image_url means none was chosen.
 function productPhoto(variants) {
-    const photos = variants.map(variant => variant.image_url).filter(Boolean);
-    return photos.find(url => url !== DEFAULT_PRODUCT_IMAGE) || photos[0] || '';
+    return variants.map(variant => variant.image_url).find(Boolean) || '';
 }
 
 // Fills in a copy of the card in products.html for one product and all of its sizes and colors.

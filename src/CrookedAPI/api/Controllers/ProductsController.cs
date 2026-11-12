@@ -511,7 +511,8 @@ public IActionResult GetProducts()
                 if (prices.Count == 1) price = prices[0];
             }
 
-            string imageUrl = ProductRules.DefaultImageUrl;
+            // Empty means no photo; the pages show their placeholder.
+            var imageUrl = "";
             if (form.ImageFile is { Length: > 0 })
             {
                 imageUrl = await SaveImageAsync(form.ImageFile);

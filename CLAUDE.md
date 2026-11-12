@@ -137,3 +137,6 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 - Railway builds the root `Dockerfile`. The Dockerfile finds `CrookedAPI.csproj` itself, so the build works whether the service's Root Directory is empty or `src`. The app listens on Railway's `PORT` variable, and Program.cs handles that.
 - Production runs on Linux, so file names are case-sensitive. Links must match file names exactly; for example, `PointofSale.html` and `PointofSale.css` but `PointOfSale.js`.
 - Uploaded product images are kept in a Railway volume mounted at `/app/wwwroot/images/products`; without it they are lost on every redeploy. The volume hides the images committed to git, so the Dockerfile keeps a copy in `/app/product-images` and `ProductImages.RestoreBuiltIn` (called from Program.cs) copies any missing ones into the volume at startup.
+- A photo uploaded from a local copy of the app (`dotnet run`) is saved on that computer, but its path goes into the shared database, so the live site can't show it. Upload photos on the live site.
+- A product without a photo has an empty `image_url`, which the pages show as their placeholder. There is no default image file.
+- Program.cs sends HTML pages with `Cache-Control: no-cache`, so browsers check for a new page on every visit and pick up the new `?v=` links right after a deploy.
