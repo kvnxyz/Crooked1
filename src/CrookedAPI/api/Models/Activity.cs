@@ -9,6 +9,7 @@ namespace Crooked.Models
         public const string Discount = "Discount";
         public const string Account = "Account";
         public const string Login = "Login";
+        // Excel imports of sales. The import was removed; kept so older entries can still be filtered.
         public const string Import = "Import";
         // Entries from before activity_type existed whose wording schema.sql doesn't recognise.
         public const string Other = "Other";

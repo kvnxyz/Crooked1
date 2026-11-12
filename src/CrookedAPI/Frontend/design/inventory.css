@@ -1,20 +1,21 @@
 /* ── INVENTORY ── */
 
+/* Search and Sort by sit side by side, and stack on narrow screens. */
 .inventory-toolbar {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    justify-content: space-between;
+    align-items: flex-end;
     gap: 12px 16px;
     margin-bottom: 16px;
 }
 
-.inventory-toolbar label {
-    color: var(--color-text);
-    font-size: var(--font-size-md);
-    font-weight: 700;
+.inventory-search-field {
+    flex: 0 1 360px;
+    min-width: min(100%, 220px);
 }
 
-.inventory-toolbar input {
-    width: min(100%, 360px);
+@media (max-width: 520px) {
+    .inventory-toolbar .form-field {
+        flex: 1 1 100%;
+    }
 }

@@ -6,9 +6,9 @@
     <title>CRKD | Products</title>
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="../design/dashboard.css?v=26">
+    <link rel="stylesheet" href="../design/dashboard.css?v=30">
     <link rel="stylesheet" href="../design/components.css?v=7">
-    <link rel="stylesheet" href="../design/products.css?v=5">
+    <link rel="stylesheet" href="../design/products.css?v=7">
     <link rel="icon" type="image/png" href="../assets/Favicon.jpg">
 
     <!-- Applies the saved theme before the page is drawn, so the page never flashes the wrong colours. -->
@@ -155,6 +155,53 @@
                 </section>
             </div>
 
+            <!-- MANAGE PRODUCT: one product's sizes and colors. It comes before the add and edit
+                 modals, so those open on top of it. -->
+            <div id="productManageModal" class="modal product-modal" hidden
+                role="dialog" aria-modal="true" aria-labelledby="manageProductTitle" aria-describedby="manageProductSummary" aria-hidden="true">
+                <div class="modal-content manage-modal-content">
+                    <div class="modal-header">
+                        <div>
+                            <h2 id="manageProductTitle">Product</h2>
+                            <p id="manageProductSummary"></p>
+                        </div>
+                        <div class="manage-header-actions">
+                            <button id="manageEditDetails" type="button" class="btn btn-secondary btn-sm">
+                                <i class="fa-solid fa-pen" aria-hidden="true"></i>
+                                Edit details
+                            </button>
+                            <button type="button" class="btn btn-ghost btn-icon" data-close-manage aria-label="Close sizes and colors">
+                                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="transaction-table-scroll manage-table-scroll">
+                        <table class="transaction-table manage-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Size</th>
+                                    <th scope="col">Color</th>
+                                    <th scope="col">Price</th>
+                                    <th scope="col">Stock</th>
+                                    <th scope="col">Status</th>
+                                    <th scope="col"><span class="visually-hidden">Actions</span></th>
+                                </tr>
+                            </thead>
+                            <tbody id="manageVariantRows"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="modal-actions manage-actions">
+                        <button id="manageAddVariant" type="button" class="btn btn-secondary">
+                            <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                            Add size or color
+                        </button>
+                        <button type="button" class="btn btn-primary" data-close-manage>Done</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- ADD PRODUCT MODAL -->
             <div id="addProductModal" class="modal product-modal" hidden
                 role="dialog" aria-modal="true" aria-labelledby="addProductTitle">
@@ -170,59 +217,58 @@
                     </div>
 
                     <form id="productForm" class="modal-form">
-                        <div class="form-field">
-                            <label for="prodImage">Product image</label>
-                            <input type="file" id="prodImage" accept="image/*" data-file-picker="Choose image">
-                        </div>
+                        <!-- "Add size or color" from the Manage window: says which product the rows are added to. -->
+                        <p id="addVariantTarget" class="add-variant-target" hidden></p>
 
-                        <div class="form-field">
-                            <label for="prodName">Product name <span class="required-mark" aria-hidden="true">*</span></label>
-                            <input type="text" id="prodName" placeholder="e.g. Core Identity Tee" autocomplete="off" required>
-                        </div>
+                        <!-- Shared by every size and color. Disabled (and hidden) when adding to a product
+                             that exists, so its required fields don't block the form. -->
+                        <fieldset id="productDetailsFields" class="product-form-group">
+                            <legend class="visually-hidden">Product details</legend>
 
-                        <div class="form-field">
-                            <label for="prodCategory">Category <span class="required-mark" aria-hidden="true">*</span></label>
-                            <select id="prodCategory" required>
-                                <option value="Balaclavas">Balaclavas</option>
-                                <option value="T-Shirts">T-Shirts</option>
-                                <option value="Long Sleeves">Long Sleeves</option>
-                                <option value="Shorts">Shorts</option>
-                                <option value="Pants">Pants</option>
-                                <option value="Tee Kids">Tee Kids</option>
-                            </select>
-                        </div>
+                            <div class="form-field">
+                                <label for="prodImage">Product image</label>
+                                <input type="file" id="prodImage" accept="image/*" data-file-picker="Choose image">
+                            </div>
 
-                        <div class="form-grid">
                             <div class="form-field">
-                                <label for="prodPrice">Price (₱) <span class="required-mark" aria-hidden="true">*</span></label>
-                                <input type="text" id="prodPrice" placeholder="0.00" inputmode="decimal" maxlength="8" required
-                                    aria-describedby="prodPriceHint">
-                                <p id="prodPriceHint" class="field-hint">Up to 5 digits and 2 decimal places.</p>
+                                <label for="prodName">Product name <span class="required-mark" aria-hidden="true">*</span></label>
+                                <input type="text" id="prodName" placeholder="e.g. Core Identity Tee" autocomplete="off" maxlength="100" required>
                             </div>
-                            <div class="form-field">
-                                <label for="prodStock">Stock quantity <span class="required-mark" aria-hidden="true">*</span></label>
-                                <input type="number" id="prodStock" placeholder="0" min="0" step="1" required>
-                            </div>
-                        </div>
 
-                        <div class="form-grid">
-                            <div class="form-field">
-                                <label for="prodSize">Size</label>
-                                <select id="prodSize" data-variant="size"></select>
-                                <input type="text" id="prodSizeOther" class="variant-other" aria-label="Other size"
-                                    placeholder="Type the size" maxlength="30" autocomplete="off" hidden>
+                            <div class="form-grid">
+                                <div class="form-field">
+                                    <label for="prodCategory">Category <span class="required-mark" aria-hidden="true">*</span></label>
+                                    <select id="prodCategory" required>
+                                        <option value="Balaclavas">Balaclavas</option>
+                                        <option value="T-Shirts">T-Shirts</option>
+                                        <option value="Long Sleeves">Long Sleeves</option>
+                                        <option value="Shorts">Shorts</option>
+                                        <option value="Pants">Pants</option>
+                                        <option value="Tee Kids">Tee Kids</option>
+                                    </select>
+                                </div>
+                                <div class="form-field">
+                                    <label for="prodPrice">Price (₱) <span class="required-mark" aria-hidden="true">*</span></label>
+                                    <input type="text" id="prodPrice" placeholder="0.00" inputmode="decimal" maxlength="8" required
+                                        aria-describedby="prodPriceHint">
+                                    <p id="prodPriceHint" class="field-hint">Up to 5 digits and 2 decimal places.</p>
+                                </div>
                             </div>
-                            <div class="form-field">
-                                <label for="prodColor">Color</label>
-                                <select id="prodColor" data-variant="color"></select>
-                                <input type="text" id="prodColorOther" class="variant-other" aria-label="Other color"
-                                    placeholder="Type the color" maxlength="30" autocomplete="off" hidden>
-                            </div>
-                        </div>
+                        </fieldset>
+
+                        <fieldset class="product-form-group variant-rows-group">
+                            <legend>Sizes and colors <span class="required-mark" aria-hidden="true">*</span></legend>
+                            <p class="field-hint">One row for each size and color, with how many are in stock.</p>
+                            <div id="variantRows" class="variant-rows"></div>
+                            <button id="addVariantRow" type="button" class="btn btn-secondary btn-sm variant-rows-add">
+                                <i class="fa-solid fa-plus" aria-hidden="true"></i>
+                                Add another size or color
+                            </button>
+                        </fieldset>
 
                         <div class="modal-actions">
                             <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
-                            <button type="submit" class="btn btn-primary">Save Product</button>
+                            <button id="addProductSubmit" type="submit" class="btn btn-primary">Save Product</button>
                         </div>
                     </form>
                 </div>
@@ -234,52 +280,16 @@
                 <div class="modal-content product-modal-content">
                     <div class="modal-header">
                         <div>
-                            <h2 id="editProductTitle">Edit Product</h2>
-                            <p>Fields marked <span class="required-mark" aria-hidden="true">*</span><span class="visually-hidden">with an asterisk</span> are required.</p>
+                            <h2 id="editProductTitle">Edit Size or Color</h2>
+                            <p>The name, category, price and photo are changed with Edit details.</p>
                         </div>
-                        <button type="button" class="btn btn-ghost btn-icon" data-close-modal aria-label="Close edit product form">
+                        <button type="button" class="btn btn-ghost btn-icon" data-close-modal aria-label="Close edit size or color form">
                             <i class="fa-solid fa-xmark" aria-hidden="true"></i>
                         </button>
                     </div>
 
                     <form id="editProductForm" class="modal-form">
                         <input type="hidden" id="editProdId">
-
-                        <div class="form-field">
-                            <label for="editProdImage">Replace product image</label>
-                            <input type="file" id="editProdImage" accept="image/*" data-file-picker="Choose new image">
-                            <img id="editProdImagePreview" class="edit-product-image-preview" alt="Current product image" hidden>
-                        </div>
-
-                        <div class="form-field">
-                            <label for="editProdName">Product name <span class="required-mark" aria-hidden="true">*</span></label>
-                            <input type="text" id="editProdName" placeholder="e.g. Core Identity Tee" autocomplete="off" required>
-                        </div>
-
-                        <div class="form-field">
-                            <label for="editProdCategory">Category <span class="required-mark" aria-hidden="true">*</span></label>
-                            <select id="editProdCategory" required>
-                                <option value="Balaclavas">Balaclavas</option>
-                                <option value="T-Shirts">T-Shirts</option>
-                                <option value="Long Sleeves">Long Sleeves</option>
-                                <option value="Shorts">Shorts</option>
-                                <option value="Pants">Pants</option>
-                                <option value="Tee Kids">Tee Kids</option>
-                            </select>
-                        </div>
-
-                        <div class="form-grid">
-                            <div class="form-field">
-                                <label for="editProdPrice">Price (₱) <span class="required-mark" aria-hidden="true">*</span></label>
-                                <input type="text" id="editProdPrice" placeholder="0.00" inputmode="decimal" maxlength="8" required
-                                    aria-describedby="editProdPriceHint">
-                                <p id="editProdPriceHint" class="field-hint">Up to 5 digits and 2 decimal places.</p>
-                            </div>
-                            <div class="form-field">
-                                <label for="editProdStock">Stock quantity <span class="required-mark" aria-hidden="true">*</span></label>
-                                <input type="number" id="editProdStock" placeholder="0" min="0" step="1" required>
-                            </div>
-                        </div>
 
                         <div class="form-grid">
                             <div class="form-field">
@@ -296,6 +306,65 @@
                             </div>
                         </div>
 
+                        <div class="form-field">
+                            <label for="editProdStock">Stock quantity <span class="required-mark" aria-hidden="true">*</span></label>
+                            <input type="number" id="editProdStock" placeholder="0" min="0" step="1" required>
+                        </div>
+
+                        <div class="modal-actions">
+                            <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+                            <button type="submit" class="btn btn-primary">Save Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- EDIT DETAILS: what every size and color of a product shares -->
+            <div id="editDetailsModal" class="modal product-modal" hidden
+                role="dialog" aria-modal="true" aria-labelledby="editDetailsTitle" aria-describedby="editDetailsNote">
+                <div class="modal-content product-modal-content">
+                    <div class="modal-header">
+                        <div>
+                            <h2 id="editDetailsTitle">Edit Product Details</h2>
+                            <p id="editDetailsNote">Changes apply to every size and color of this product.</p>
+                        </div>
+                        <button type="button" class="btn btn-ghost btn-icon" data-close-modal aria-label="Close edit details form">
+                            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                        </button>
+                    </div>
+
+                    <form id="editDetailsForm" class="modal-form">
+                        <div class="form-field">
+                            <label for="detailsImage">Replace product photo</label>
+                            <input type="file" id="detailsImage" accept="image/*" data-file-picker="Choose new image">
+                            <img id="detailsImagePreview" class="edit-product-image-preview" alt="Current product photo" hidden>
+                        </div>
+
+                        <div class="form-field">
+                            <label for="detailsName">Product name <span class="required-mark" aria-hidden="true">*</span></label>
+                            <input type="text" id="detailsName" autocomplete="off" maxlength="100" required>
+                        </div>
+
+                        <div class="form-grid">
+                            <div class="form-field">
+                                <label for="detailsCategory">Category <span class="required-mark" aria-hidden="true">*</span></label>
+                                <select id="detailsCategory" required>
+                                    <option value="Balaclavas">Balaclavas</option>
+                                    <option value="T-Shirts">T-Shirts</option>
+                                    <option value="Long Sleeves">Long Sleeves</option>
+                                    <option value="Shorts">Shorts</option>
+                                    <option value="Pants">Pants</option>
+                                    <option value="Tee Kids">Tee Kids</option>
+                                </select>
+                            </div>
+                            <div class="form-field">
+                                <label for="detailsPrice">Price (₱) <span class="required-mark" aria-hidden="true">*</span></label>
+                                <input type="text" id="detailsPrice" placeholder="0.00" inputmode="decimal" maxlength="8" required
+                                    aria-describedby="detailsPriceHint">
+                                <p id="detailsPriceHint" class="field-hint">Up to 5 digits and 2 decimal places.</p>
+                            </div>
+                        </div>
+
                         <div class="modal-actions">
                             <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
                             <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -307,7 +376,8 @@
         </main>
     </div>
 
-    <!-- One card in the product grid; products.js fills in a copy per product. -->
+    <!-- One card in the product grid; products.js fills in a copy per product, with all of its
+         sizes and colors behind the Manage button. -->
     <template id="productCardTemplate">
         <div class="product-card">
             <div class="img-placeholder" data-field="image">NO IMAGE AVAILABLE</div>
@@ -318,25 +388,54 @@
             </div>
 
             <h3 class="product-card-title" data-field="name"></h3>
-
-            <div class="product-card-details">
-                <span>Size: <strong data-field="size"></strong></span>
-                <span>Color: <strong data-field="color"></strong></span>
-                <span>Stock: <strong data-field="stock"></strong></span>
-            </div>
+            <p class="product-card-summary" data-field="summary"></p>
 
             <div class="product-card-actions" data-field="actions">
-                <button type="button" class="btn btn-secondary btn-sm" data-action="edit">Edit<span class="visually-hidden"></span></button>
+                <button type="button" class="btn btn-secondary btn-sm" data-action="manage">
+                    <i class="fa-solid fa-sliders" aria-hidden="true"></i>
+                    Manage<span class="visually-hidden"></span>
+                </button>
                 <button type="button" class="btn btn-danger-outline btn-sm" data-action="archive">Archive<span class="visually-hidden"></span></button>
             </div>
         </div>
     </template>
 
-    <script src="../javascript/ui.js?v=6"></script>
+    <!-- One size and color in the Add Product form; products.js gives each copy its own ids. -->
+    <template id="variantRowTemplate">
+        <div class="variant-row">
+            <div class="variant-row-header">
+                <span class="variant-row-title" data-field="title">Size and color 1</span>
+                <button type="button" class="btn btn-ghost btn-sm variant-row-remove" data-action="remove-row">
+                    <i class="fa-solid fa-trash-can" aria-hidden="true"></i>
+                    Remove
+                </button>
+            </div>
+            <div class="variant-row-fields">
+                <div class="form-field">
+                    <label data-field="sizeLabel">Size</label>
+                    <select data-variant="size" data-field="size"></select>
+                    <input type="text" class="variant-other" data-field="sizeOther" aria-label="Other size"
+                        placeholder="Type the size" maxlength="30" autocomplete="off" hidden>
+                </div>
+                <div class="form-field">
+                    <label data-field="colorLabel">Color</label>
+                    <select data-variant="color" data-field="color"></select>
+                    <input type="text" class="variant-other" data-field="colorOther" aria-label="Other color"
+                        placeholder="Type the color" maxlength="30" autocomplete="off" hidden>
+                </div>
+                <div class="form-field variant-stock-field">
+                    <label data-field="stockLabel">Stock <span class="required-mark" aria-hidden="true">*</span></label>
+                    <input type="number" data-field="stock" placeholder="0" min="0" step="1" required>
+                </div>
+            </div>
+        </div>
+    </template>
+
+    <script src="../javascript/ui.js?v=7"></script>
     <script src="../javascript/live.js?v=2"></script>
     <script src="../javascript/layout.js?v=9"></script>
     <script src="../javascript/account.js?v=4"></script>
-    <script src="../javascript/products.js?v=6"></script>
+    <script src="../javascript/products.js?v=9"></script>
 
 </body>
 </html>

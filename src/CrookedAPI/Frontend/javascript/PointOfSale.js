@@ -69,12 +69,12 @@ function trapFocus(event, container) {
 }
 
 // Returns focus to the element that opened a dialog, or to the product search
-// when that element was re-rendered in the meantime. A button in a closed checkout
+// when that element was re-rendered or hidden in the meantime. A button in a closed checkout
 // sheet can't take focus, so the bar that opens the sheet takes it instead.
 function restoreFocus(element) {
   if (sheetLayout.matches && !isCartOpen() && checkoutPanel.contains(element)) {
     cartBar.focus();
-  } else if (element?.isConnected && element !== document.body) {
+  } else if (element?.isConnected && element !== document.body && element.getClientRects().length) {
     element.focus();
   } else {
     productSearch.focus();
@@ -329,8 +329,14 @@ function switchToDashboard() {
 ========================= */
 let productGroups = [];
 let selectedVariants = [];
+let selectedGroupKey = null;
 let activeCategory = "All";
 let shownCategories = "";
+// Only the answer to the latest product request is shown, so a slow older one can't bring back old stock.
+let productsRequest = 0;
+
+// A product's sizes and colors share one card.
+const groupKeyOf = product => JSON.stringify([product.product_Name, product.category]);
 
 function groupInStock(variants) {
   return variants.some(variant => variant.stock_Quantity > 0);
@@ -351,15 +357,18 @@ function showGridMessage(text) {
   grid.appendChild(item);
 }
 
-async function loadProducts() {
+// quiet: a refresh after a sale or a live update, which keeps the current products on screen if it fails.
+async function loadProducts({ quiet = false } = {}) {
+  const request = ++productsRequest;
   try {
     const res = await fetch("/api/POS/products");
     if (!res.ok) throw new Error(`Product request failed (${res.status})`);
     const products = await res.json();
+    if (request !== productsRequest) return;
 
     const groups = new Map();
     products.forEach(product => {
-      const groupKey = JSON.stringify([product.product_Name, product.category]);
+      const groupKey = groupKeyOf(product);
       if (!groups.has(groupKey)) groups.set(groupKey, []);
       groups.get(groupKey).push(product);
     });
@@ -368,14 +377,79 @@ async function loadProducts() {
     productGroups = [...groups.values()].sort((a, b) => groupInStock(b) - groupInStock(a));
     renderCategoryTabs();
     renderProductGrid();
+    refreshVariantPicker();
+    // A sale being saved takes its own stock, so the checkout is only checked once it is done.
+    if (!salePending) showStockChanges(syncCartWithStock());
   } catch (err) {
     console.error("Error loading products:", err);
+    if (quiet || request !== productsRequest) return;
     grid.replaceChildren();
     showGridMessage("Unable to load products. Please try again.");
     productSearchStatus.textContent = "Products could not be loaded.";
   } finally {
     UI.doneLoading(grid);
   }
+}
+
+// Keeps an open size and color picker on the latest stock.
+function refreshVariantPicker() {
+  if (document.getElementById("variantModal").hidden || !selectedGroupKey) return;
+  selectedVariants = productGroups.find(variants => groupKeyOf(variants[0]) === selectedGroupKey) || [];
+  updateVariantAvailability();
+}
+
+// Fits the checkout to the latest stock: each item's limit is updated, and an item the shop now has
+// fewer of is lowered to what is left, or removed when none is left or it is no longer sold.
+// Returns what was changed, as sentences for the cashier.
+function syncCartWithStock() {
+  const products = new Map(productGroups.flat().map(product => [product.id, product]));
+  const changes = [];
+  let limitsChanged = false;
+
+  Object.values(cart).forEach(item => {
+    const product = products.get(item.id);
+    const stock = Math.max(0, product?.stock_Quantity ?? 0);
+    if (stock !== item.stock) limitsChanged = true;
+    item.stock = stock;
+    if (item.qty <= stock) return;
+
+    if (!product) {
+      changes.push(`${itemLabel(item)} is no longer sold and was removed.`);
+      delete cart[item.id];
+    } else if (stock === 0) {
+      changes.push(`${itemLabel(item)} is out of stock and was removed.`);
+      delete cart[item.id];
+    } else {
+      changes.push(`Only ${stock} of ${itemLabel(item)} ${stock === 1 ? "is" : "are"} left, so the quantity is now ${stock}.`);
+      item.qty = stock;
+    }
+  });
+
+  if (changes.length || limitsChanged) {
+    // The list is rebuilt, so focus goes back to the same quantity button if one had it.
+    const focused = checkoutList.contains(document.activeElement) ? document.activeElement : null;
+    renderCheckout(focused?.dataset.itemId ? { id: focused.dataset.itemId, action: focused.dataset.action } : null);
+  }
+  return changes;
+}
+
+// Tells the cashier what syncCartWithStock changed. A payment that was open shows the old total, so it
+// closes and the cashier checks out again; this also drops a "Complete Sale" confirmation for the old items.
+function showStockChanges(changes, { title = "Stock Changed", intro = "The stock changed since these items were added." } = {}) {
+  if (!changes.length) return;
+  const paymentWasOpen = closePaymentSteps();
+  showDialog(title, [
+    intro,
+    ...changes,
+    paymentWasOpen ? "Check out again to take the payment." : ""
+  ].filter(Boolean).join(" "));
+}
+
+// Returns whether a payment step was open.
+function closePaymentSteps() {
+  return ["paymentModal", "cashModal", "gcashModal"]
+    .map(id => hideModal(id) !== null)
+    .some(Boolean);
 }
 
 // "All" plus one button per category the products use. The buttons are rebuilt only when
@@ -500,6 +574,7 @@ function renderProductGrid() {
 
 function openVariantPicker(variants) {
   selectedVariants = variants;
+  selectedGroupKey = groupKeyOf(variants[0]);
   document.getElementById("variantProductName").textContent = variants[0].product_Name;
 
   const sizes = [...new Set(variants.map(variantSizeOf))];
@@ -595,6 +670,7 @@ function addToCart(product) {
   }
 
   if (cart[id]) {
+    cart[id].stock = product.stock_Quantity;
     if (cart[id].qty < product.stock_Quantity) {
       cart[id].qty++;
     } else {
@@ -1045,13 +1121,16 @@ function buildTransaction(method, received = null, change = null, refId = null) 
   };
 }
 
-// Returns { saved: true }, { saved: false } after showing the error, or { discountProblem } when the
-// discount can no longer be used; nothing is changed in that case.
+// Saves the sale with one request: the server takes the stock and saves the sale together
+// (TransactionController.SaveTransaction), so a sale that fails changes nothing and can be tried again.
+// Returns { saved: true }, { saved: false } after showing the error, { discountProblem } when the
+// discount can no longer be used, or { stockProblem: true } when the shop no longer has enough of an
+// item (another till sold it, or it was edited or archived).
 async function processCheckout(tx) {
   try {
     // The code may have been turned off, used up or expired since it was applied, or the owner may
-    // have lowered the manual discount limit. Checking before any stock is taken means the sale
-    // stops cleanly instead of failing halfway.
+    // have lowered the manual discount limit. This gives a clear answer before the sale is sent;
+    // the server checks once more while saving it.
     if (tx.discountCode || tx.manualDiscountPercent) {
       try {
         if (tx.discountCode) await checkDiscount(tx.discountCode);
@@ -1062,22 +1141,23 @@ async function processCheckout(tx) {
       }
     }
 
-    const checkoutRes = await fetch("/api/POS/checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(cartItemsPayload())
-    });
-
-    if (!checkoutRes.ok) throw new Error("Stock deduction failed");
-
     const transactionRes = await fetch("/api/POS/Transaction", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(tx)
     });
-    if (!transactionRes.ok) throw new Error("Transaction could not be saved");
 
-    console.log("Checkout and transaction saved.");
+    // The reasons are SaleConflicts on the server.
+    if (transactionRes.status === 409) {
+      const conflict = await transactionRes.json().catch(() => ({}));
+      if (conflict.reason === "stock") return { saved: false, stockProblem: true };
+      if (conflict.reason === "discount") {
+        return { saved: false, discountProblem: conflict.message || "This discount can no longer be used." };
+      }
+    }
+    if (!transactionRes.ok) throw new Error(`Transaction could not be saved (${transactionRes.status})`);
+
+    console.log("Sale saved.");
     return { saved: true };
   } catch (err) {
     console.error("Error during checkout:", err);
@@ -1096,11 +1176,27 @@ async function completeSale(tx, modalId, submitButton) {
   submitButton.setAttribute("aria-disabled", "true");
   submitButton.textContent = "Saving...";
 
-  const { saved, discountProblem } = await processCheckout(tx);
+  const { saved, discountProblem, stockProblem } = await processCheckout(tx);
+  // Still pending, so this refresh leaves the checkout alone until it is checked below.
+  if (stockProblem) await loadProducts({ quiet: true });
 
   salePending = false;
   submitButton.removeAttribute("aria-disabled");
   submitButton.textContent = buttonText;
+
+  if (stockProblem) {
+    const changes = syncCartWithStock();
+    if (changes.length) {
+      showStockChanges(changes, { title: "Not Enough Stock", intro: "Nothing was sold, because the stock changed." });
+    } else {
+      closePaymentSteps();
+      showDialog(
+        "Not Enough Stock",
+        "Nothing was sold, because a product no longer has enough stock. The products were refreshed; check the checkout and try again."
+      );
+    }
+    return;
+  }
 
   // The total changes without the discount, so the payment starts again from Check Out.
   if (discountProblem) {
@@ -1121,6 +1217,8 @@ async function completeSale(tx, modalId, submitButton) {
   receiptTx = tx;
   showModal("receiptModal", returnFocus);
   announce("Payment complete. The sale was saved.");
+  // Shows the stock this sale left right away, without waiting for (or depending on) the live update.
+  loadProducts({ quiet: true });
 }
 
 checkoutBtn.addEventListener("click", () => {
@@ -1274,8 +1372,9 @@ if (userName) {
 renderCheckout();
 UI.cardSkeletons(grid, { count: 8, tag: "li", cardClass: "product-card", mediaHeight: "160px", lines: 3 });
 loadProducts();
-// Stock changes from other tills, exchanges and product edits show up without a reload.
-Live.on(["products", "exchanges"], loadProducts);
+// Stock changes from other tills (POST /api/POS/Transaction), exchanges and product edits show up without
+// a reload, and the checkout is fitted to the new stock.
+Live.on(["products", "exchanges"], () => loadProducts({ quiet: true }));
 // So do coupons the owner creates, turns off or deletes, ones that get used up, and changes to the
 // staff manual discount limit.
 Live.on(["discounts"], loadAvailableDiscounts);

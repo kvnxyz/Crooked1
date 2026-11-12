@@ -6,6 +6,7 @@ const UI = (() => {
     const pesoNumber = new Intl.NumberFormat('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const statusTones = { Completed: 'success', Exchanged: 'info', Pending: 'warning', Voided: 'danger' };
+    const stockBadges = { out: ['Out of stock', 'danger'], low: ['Low stock', 'warning'], in: ['In stock', 'success'] };
 
     function formatPeso(amount) {
         return `₱${pesoNumber.format(Number(amount) || 0)}`;
@@ -200,6 +201,13 @@ const UI = (() => {
 
     function statusBadge(status) {
         return badge(status, statusTones[status]);
+    }
+
+    // A size or color's stock_status from the API (StockStatus.Of on the server), so every page
+    // labels low and out-of-stock items the same way.
+    function stockBadge(stockStatus) {
+        const [text, tone] = stockBadges[stockStatus] || stockBadges.in;
+        return badge(text, tone);
     }
 
     /* =========================
@@ -446,6 +454,7 @@ const UI = (() => {
         detailPair,
         badge,
         statusBadge,
+        stockBadge,
         pagination,
         toast,
         setLoading,

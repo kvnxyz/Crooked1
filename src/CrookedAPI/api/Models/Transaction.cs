@@ -32,6 +32,16 @@ namespace Crooked.Models
         public int Quantity { get; set; }
     }
 
+    // Why SaveTransaction refused a sale (409, sent as "reason"), so the POS knows what to fix.
+    // Nothing is saved or taken out of stock in either case.
+    public static class SaleConflicts
+    {
+        // A product is archived or has fewer units than the sale needs.
+        public const string Stock = "stock";
+        // The coupon or manual discount can no longer be used.
+        public const string Discount = "discount";
+    }
+
     // Search, filters and paging for the audit logs and the Excel export.
     public sealed class TransactionQuery
     {

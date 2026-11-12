@@ -22,7 +22,7 @@ src/
       Services/                 # ThresholdForecastService + SalesForecaster (ML.NET forecasting), TransactionStore (shared reads),
                                 # DiscountStore (coupon reads, subtotal, usage), AccountSessions (ends outdated sessions),
                                 # ActivityLog (writes activity_logs entries), Money (peso formatting),
-                                # TransactionExcel (xlsx export/import), ShopClock (UTC <-> PH time),
+                                # TransactionExcel (xlsx export), ShopClock (UTC <-> PH time),
                                 # LiveUpdates + [LiveUpdate] (Supabase Realtime broadcasts),
                                 # ProductImages (restores committed photos into the Railway volume)
     Frontend/
@@ -38,6 +38,11 @@ Pages:
 - `PointofSale` is the cashier view.
 - `receipt` is the printable receipt. The POS leaves the sale in localStorage and opens the page in a small window; `receipt.js` reads and clears the sale, fills in the page and prints it.
 - The admin pages share a sidebar: `dashboard`, `products`, `inventory`, `transaction-logs`, `activity-logs`, `exchange`, `sales-history`, `discounts`, `staff-management` (shown as Accounts), and `forecasting`. Pages marked `data-owner-only` are restricted to the owner role.
+- Each size and color of a product is its own row in `products`. The `products` page and the POS show one card per product (same name and category). On the `products` page, the card shows the count of sizes, colors and units in stock, and its Manage window lists each size and color with Edit, Archive and "Add size or color". The `inventory` page keeps one row per size and color, with a "Sort by" choice: out of stock last (the default) or low stock first.
+  - The name, category, price and photo are shared by every size and color of a product. Change them with "Edit details" in the Manage window (`PUT /api/Products/update-details/{id}`, which updates every active row with that row's name and category). A size's own Edit changes only its size, color and stock (`update-product/{id}`, sending the shared details unchanged).
+  - Add Product takes the shared details and a list of size-and-color rows (`<template id="variantRowTemplate">`), and "Add size or color" uses the same form with the details left out. Both send `POST /api/Products/add-variants`, which adds every row in one transaction. It refuses a size and color the product already has, active or archived (ignoring case), and gives added sizes the product's existing photo (`PhotoFromId`).
+  - The card's Archive archives every size and color with one request and one log entry (`POST /api/Products/archive-group/{id}`). The rules and limits are in `ProductRules` (api/Models/ProductForms.cs).
+- `transaction-logs` (Audit Logs, the sale records) and `activity-logs` (who did what) each have a one-line `.page-description` under the heading so they're easy to tell apart. The style is in `dashboard.css`, and any page can use it.
 
 ## Conventions
 
@@ -48,7 +53,7 @@ Pages:
   - Markup a script repeats goes in a `<template>` in the page's HTML, as in `products.html` and `receipt.html`. Small pieces can be built with `UI.el` and `UI.cell`.
 - A new page needs three files that share its name: `page/<name>.html`, `design/<name>.css`, and `javascript/<name>.js`, using kebab-case for new names. Add its link to the sidebar on every admin page.
 - Reuse the shared pieces instead of copying them:
-  - `ui.js` (the `UI` namespace) with `components.css`: skeleton loaders (`tableSkeleton`, `cardSkeletons`, `textSkeleton`), table empty/error states (`tableMessage`), `fillTable`, `labelCells`, badges (`statusBadge`), `pagination`, toasts, `setLoading` for buttons, `fetchJson`, `download`, `detailPair`, and formatters (`formatPeso`, `variantLabel`, `variantName`, and `compareSizes` for sorting sizes). It also turns `<input type="file" data-file-picker="Label">` into a button-only file picker. Every page loads it, including the login page and the POS.
+  - `ui.js` (the `UI` namespace) with `components.css`: skeleton loaders (`tableSkeleton`, `cardSkeletons`, `textSkeleton`), table empty/error states (`tableMessage`), `fillTable`, `labelCells`, badges (`statusBadge`, and `stockBadge` for a product's `stock_status`), `pagination`, toasts, `setLoading` for buttons, `fetchJson`, `download`, `detailPair`, and formatters (`formatPeso`, `variantLabel`, `variantName`, and `compareSizes` for sorting sizes). It also turns `<input type="file" data-file-picker="Label">` into a button-only file picker. Every page loads it, including the login page and the POS.
   - The confirmation dialog (`showDialog`) is styled once in `components.css`: blurred backdrop, centred text and buttons.
   - `live.js` (the `Live` namespace): `Live.on(topics, reload)` reloads a view when the server broadcasts that those topics changed. Loaders take `{ quiet: true }` for these refreshes so they skip skeletons and keep the current rows until new ones arrive.
   - `layout.js` provides `apiBase`, dialogs (`showDialog`), `showToast`, modals with focus trapping, the navigation drawer, the profile card, logout, the owner-only redirect, and forecast notifications.
@@ -83,7 +88,8 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 
 ## Transactions and exchanges
 
-- Sale records are read-only in the Audit Logs (the `transaction-logs` page). The page lists 10 per page from `GET /api/POS/Transaction/search` (search, status, payment and date filters). Export and import use `/export`, `/import-template` and `/import` with `.xlsx` files only. Import matches sales by Reference ID: new ones are added, existing ones are updated when any field (or, if the file lists them, any item) differs, and unchanged ones are skipped. It never changes stock.
+- Sale records are read-only in the Audit Logs (the `transaction-logs` page). The page lists 10 per page from `GET /api/POS/Transaction/search` (search, status, payment and date filters). The owner can export the filtered sales and their items to `.xlsx` with `/export`. There is no import: sales only come from the POS, so no file can add or change a sale.
+- The `sales-history` page reads the same `/search` endpoint, 10 sales per page, with search (reference ID, staff or product) and a date range, and shows who made each sale.
 - `transactions.payment_method` is `Cash`, `GCash` or `Unknown`.
 - An exchanged sale keeps `status = 'Completed'` (so it still counts as revenue) and gets `has_exchange = TRUE`. The API shows it as "Exchanged".
 - Exchanges go through `ExchangeController` and follow `ExchangePolicy`: only items bought as a single piece (quantity 1), only within 3 days of the sale (Philippine dates), for the same product (name and category) at the same price in a different size and/or color. Items bought in larger quantities are not shown. Each exchange:
@@ -105,11 +111,11 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 - Instead of a coupon, a cashier can give a manual discount: "Manual discount" at the end of the POS dropdown asks for a whole-number percentage. Owners can give up to 100%; staff up to the limit the owner sets in the Manual Discounts card on the `discounts` page (`discount_settings.staff_max_percent`, default 10, where 0 turns them off for staff). The rules are in `ManualDiscount` (api/Models/Discount.cs), and `DiscountStore.ManualMaxPercentAsync` decides the limit from the session's role, never from the browser.
   - `GET /api/Discounts/manual` gives the signed-in person's limit (`maxPercent`) and the staff limit; `POST /api/Discounts/manual` (owner) changes the staff limit; `POST /api/Discounts/apply-manual` checks a manual discount without changing anything. The POS checks it again just before stock is taken.
   - `SaveTransaction` checks it again, works out the total from product prices, and stores `manual_discount_percent` and `discount_amount` with `discount_code` left NULL. A sale can't have both a coupon and a manual discount. The sale's activity log entry includes the percentage and amount.
-- The receipt and the Audit Logs details show the discount. The Excel export and import don't include it.
+- The receipt and the Audit Logs details show the discount. The Excel export doesn't include it.
 
 ## Activity logs
 
-- `activity_logs` records who did what: sales ("Processed sale ..."), exchanges, Excel imports, product, discount and account changes, and logins and logouts. `activity_type` holds the kind (`ActivityTypes` in api/Models/Activity.cs); schema.sql sorts entries written before that column existed by their wording, and ones it doesn't recognise become `Other`.
+- `activity_logs` records who did what: sales ("Processed sale ..."), exchanges, product, discount and account changes, and logins and logouts. `activity_type` holds the kind (`ActivityTypes` in api/Models/Activity.cs); schema.sql sorts entries written before that column existed by their wording, and ones it doesn't recognise become `Other`. The `Import` type is only for older entries from the Excel import, which was removed.
 - The owner-only `activity-logs` page lists every entry, newest first, 20 per page, from `GET /api/Activity` (search, type, staff and date filters), with the Staff filter's names from `GET /api/Activity/staff`. It replaced the dashboard's old Recent Activity card.
 
 ## Sales forecasting
@@ -118,7 +124,6 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 - `SalesForecaster` forecasts the next 7 days for each product (name and category) from `product_daily_sales`, using complete Philippine days only. With at least `MinHistoryDays` (28) since the first sale, it backtests ML.NET's SSA time-series model against the 7-day average on the last 1 to 3 weeks and uses whichever missed by less. Otherwise it uses the 7-day average. If ML.NET fails (for example, native libraries won't load), it logs a warning and falls back to the average.
 - Sizes and colors share a product's forecast, split by each one's share of the last 28 days' sales. Each one's low-stock threshold covers `CoverageDays` of predicted sales, and its Fast/Moderate/Slow rating comes from predicted units a day (3 or more, 1 or more).
 - Forecasts are stored in `product_forecasts`. `GET /api/Forecasting/daily-sales` adds them to each product, along with the days of stock left and a restock suggestion (`RestockDays`) worked out from the current stock.
-- The Excel import doesn't add to `product_daily_sales`, so imported sales don't feed the forecast.
 
 ## Live updates (Supabase Realtime)
 

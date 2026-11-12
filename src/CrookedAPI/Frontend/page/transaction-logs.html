@@ -6,9 +6,9 @@
     <title>CRKD | Audit Logs</title>
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    <link rel="stylesheet" href="../design/dashboard.css?v=26">
+    <link rel="stylesheet" href="../design/dashboard.css?v=30">
     <link rel="stylesheet" href="../design/components.css?v=7">
-    <link rel="stylesheet" href="../design/transaction-logs.css?v=7">
+    <link rel="stylesheet" href="../design/transaction-logs.css?v=8">
     <link rel="icon" type="image/png" href="../assets/Favicon.jpg">
 
     <!-- Applies the saved theme before the page is drawn, so the page never flashes the wrong colours. -->
@@ -103,6 +103,7 @@
         <main id="main-content" class="content-wrapper" tabindex="-1">
 
             <h1>AUDIT LOGS</h1>
+            <p class="page-description">A read-only record of every sale: what was sold, the total and how it was paid.</p>
 
             <!-- AUDIT LOGS SECTION -->
             <div id="view-transactions" class="content-section">
@@ -153,10 +154,6 @@
                     <div class="table-toolbar">
                         <p id="transactionSummary" class="table-summary" role="status" aria-live="polite">Loading transactions...</p>
                         <div class="table-actions">
-                            <button id="importButton" class="btn btn-secondary" type="button">
-                                <i class="fa-solid fa-file-import" aria-hidden="true"></i>
-                                Import
-                            </button>
                             <button id="exportButton" class="btn btn-primary" type="button">
                                 <i class="fa-solid fa-file-export" aria-hidden="true"></i>
                                 Export to Excel
@@ -206,55 +203,16 @@
                         </div>
                     </div>
                 </div>
-
-                <!-- IMPORT -->
-                <div id="importModal" class="modal" hidden
-                    role="dialog" aria-modal="true" aria-labelledby="importTitle" aria-describedby="importDescription" aria-hidden="true">
-                    <div class="modal-content import-modal-content">
-                        <div class="modal-header">
-                            <div>
-                                <h2 id="importTitle">Import transactions</h2>
-                                <p id="importDescription">Add sales from an Excel workbook (.xlsx). A sale whose Reference ID already exists is updated when anything in the file is different, and skipped when nothing changed. Stock levels are not changed.</p>
-                            </div>
-                            <button class="btn btn-ghost btn-icon" type="button" data-close-import aria-label="Close import">
-                                <i class="fa-solid fa-xmark" aria-hidden="true"></i>
-                            </button>
-                        </div>
-
-                        <form id="importForm" class="modal-form" novalidate>
-                            <div class="form-field">
-                                <label for="importFile">Excel file (.xlsx, up to 5 MB)</label>
-                                <input id="importFile" type="file" required data-file-picker="Choose Excel file"
-                                    accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                    aria-describedby="importFileHint">
-                                <p id="importFileHint" class="form-hint">
-                                    Use the template, or a file exported from this page.
-                                    <button id="templateButton" class="link-button" type="button">Download the template</button>
-                                </p>
-                            </div>
-
-                            <div id="importResult" class="import-result" role="status" aria-live="polite" hidden></div>
-
-                            <div class="modal-actions">
-                                <button class="btn btn-secondary" type="button" data-close-import>Close</button>
-                                <button id="importSubmit" class="btn btn-primary" type="submit">
-                                    <i class="fa-solid fa-file-import" aria-hidden="true"></i>
-                                    Import
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
             </div>
 
         </main>
     </div>
 
-    <script src="../javascript/ui.js?v=6"></script>
+    <script src="../javascript/ui.js?v=7"></script>
     <script src="../javascript/live.js?v=2"></script>
     <script src="../javascript/layout.js?v=9"></script>
     <script src="../javascript/account.js?v=4"></script>
-    <script src="../javascript/transaction-logs.js?v=10"></script>
+    <script src="../javascript/transaction-logs.js?v=11"></script>
 
 </body>
 </html>

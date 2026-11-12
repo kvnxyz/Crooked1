@@ -49,67 +49,7 @@ namespace Crooked.Controllers
             return Ok(products);
         }
 
-        [HttpPost("checkout")]
-        [LiveUpdate(LiveTopics.Products)]
-        public async Task<IActionResult> Checkout([FromBody] List<CartItem> cart)
-        {
-            if (cart == null || cart.Count == 0 || cart.Any(item => item.Quantity <= 0))
-            {
-                return BadRequest(new { message = "The cart must contain items with valid quantities." });
-            }
-
-            using (var conn = new NpgsqlConnection(_connectionString))
-            {
-                await conn.OpenAsync();
-
-                using (var transaction = await conn.BeginTransactionAsync())
-                {
-                    try
-                    {
-                        foreach (var item in cart)
-                        {
-                            await using var updateStock = new NpgsqlCommand(
-                                @"UPDATE products
-                                  SET stock_quantity = stock_quantity - @qty
-                                  WHERE id = @id AND is_active = TRUE AND stock_quantity >= @qty",
-                                conn, transaction);
-                            updateStock.Parameters.AddWithValue("@qty", item.Quantity);
-                            updateStock.Parameters.AddWithValue("@id", item.ProductId);
-                            if (await updateStock.ExecuteNonQueryAsync() == 0)
-                            {
-                                await transaction.RollbackAsync();
-                                return Conflict(new { message = "A product is unavailable or has insufficient stock." });
-                            }
-
-                            await using var recordSales = new NpgsqlCommand(
-                                @"INSERT INTO product_daily_sales (product_id, sale_date, quantity_sold)
-                                  VALUES (@id, (NOW() AT TIME ZONE 'Asia/Manila')::date, @qty)
-                                  ON CONFLICT (product_id, sale_date)
-                                  DO UPDATE SET quantity_sold = product_daily_sales.quantity_sold + EXCLUDED.quantity_sold",
-                                conn, transaction);
-                            recordSales.Parameters.AddWithValue("@id", item.ProductId);
-                            recordSales.Parameters.AddWithValue("@qty", item.Quantity);
-                            await recordSales.ExecuteNonQueryAsync();
-                        }
-
-                        await transaction.CommitAsync();
-                    }
-                    catch (Exception)
-                    {
-                        await transaction.RollbackAsync();
-                        throw;
-                    }
-                }
-            }
-
-            return Ok(new { success = true });
-        }
+        // A sale's stock is taken in the same database transaction that saves it
+        // (POST /api/POS/Transaction, TransactionController.SaveTransaction).
     }
-
-    public class CartItem
-    {
-        public int ProductId { get; set; }
-        public int Quantity { get; set; }
-    }
-
 }

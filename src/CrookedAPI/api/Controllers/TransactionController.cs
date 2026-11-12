@@ -10,23 +10,15 @@ namespace Crooked.Controllers
     [ApiController]
     public class TransactionController : ControllerBase
     {
-        private const long MaxImportBytes = 5 * 1024 * 1024;
         private const int MaxExportRows = 50000;
         private readonly string _connectionString = DatabaseConfig.ConnectionString;
 
-        // Revenue from completed sales (exchanged ones included) for a RevenuePeriods period:
-        // today (the default), 7days, month or year. Each period ends with today in Philippine time.
+        // Today's revenue (Philippine time) from completed sales, exchanged ones included.
         [Authorize(Roles = UserRoles.Owner)]
-        [HttpGet("revenue")]
-        public IActionResult GetRevenue([FromQuery] string? period)
+        [HttpGet("today-revenue")]
+        public IActionResult GetTodayRevenue()
         {
             var today = ShopClock.Today;
-            var firstDay = RevenuePeriods.FirstDay(period ?? RevenuePeriods.Today, today);
-            if (firstDay is not DateOnly from)
-            {
-                return BadRequest(new { error = "Period must be today, 7days, month or year." });
-            }
-
             try
             {
                 using (var connection = new NpgsqlConnection(_connectionString))
@@ -41,22 +33,26 @@ namespace Crooked.Controllers
 
                     using (var command = new NpgsqlCommand(sql, connection))
                     {
-                        command.Parameters.AddWithValue("@from", ShopClock.StartOfDayUtc(from));
+                        command.Parameters.AddWithValue("@from", ShopClock.StartOfDayUtc(today));
                         command.Parameters.AddWithValue("@to", ShopClock.StartOfDayUtc(today.AddDays(1)));
                         var revenue = Convert.ToDecimal(command.ExecuteScalar());
-                        return Ok(new { revenue, from, to = today });
+                        return Ok(new { revenue, date = today });
                     }
                 }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Revenue Error: {ex.Message}");
-                return StatusCode(500, new { error = "Unable to load revenue." });
+                Console.WriteLine($"Today's Revenue Error: {ex.Message}");
+                return StatusCode(500, new { error = "Unable to load today's revenue." });
             }
         }
 
+        // Records a POS sale: takes its items out of stock, adds them to the day's sales for forecasting,
+        // counts the coupon, saves the sale and its items, and writes the activity log, all in one database
+        // transaction. A 409 (reason: SaleConflicts) or an error leaves everything as it was, so a failed
+        // sale never takes stock and trying again can't take it twice.
         [HttpPost]
-        [LiveUpdate(LiveTopics.Transactions, LiveTopics.Discounts, LiveTopics.Activity)]
+        [LiveUpdate(LiveTopics.Transactions, LiveTopics.Products, LiveTopics.Discounts, LiveTopics.Activity)]
         public async Task<IActionResult> SaveTransaction([FromBody] Transaction tx)
         {
             try
@@ -67,9 +63,9 @@ namespace Crooked.Controllers
                     return BadRequest(new { error = "Transaction is null" });
                 }
 
-                if (tx.Items == null || tx.Items.Any(item => item.ProductId <= 0 || item.Quantity <= 0))
+                if (tx.Items == null || tx.Items.Count == 0 || tx.Items.Any(item => item.ProductId <= 0 || item.Quantity <= 0))
                 {
-                    return BadRequest(new { error = "Transaction items must have a valid product and quantity." });
+                    return BadRequest(new { error = "A sale needs at least one item, each with a valid product and quantity." });
                 }
 
                 if (!string.IsNullOrWhiteSpace(tx.DiscountCode) && tx.ManualDiscountPercent != null)
@@ -102,7 +98,7 @@ namespace Crooked.Controllers
                             if (problem != null)
                             {
                                 await dbTransaction.RollbackAsync();
-                                return Conflict(new { message = problem });
+                                return Conflict(new { message = problem, reason = SaleConflicts.Discount });
                             }
 
                             discountCode = discount!.Code;
@@ -119,13 +115,23 @@ namespace Crooked.Controllers
                             if (problem != null)
                             {
                                 await dbTransaction.RollbackAsync();
-                                return Conflict(new { message = problem });
+                                return Conflict(new { message = problem, reason = SaleConflicts.Discount });
                             }
 
                             var subtotal = await DiscountStore.SubtotalAsync(conn, dbTransaction, tx.Items);
                             manualPercent = tx.ManualDiscountPercent.Value;
                             discountAmount = ManualDiscount.AmountOff(subtotal, manualPercent.Value);
                             total = subtotal - discountAmount;
+                        }
+
+                        if (!await TakeStockAsync(conn, dbTransaction, tx.Items))
+                        {
+                            await dbTransaction.RollbackAsync();
+                            return Conflict(new
+                            {
+                                message = "A product is no longer sold or doesn't have enough stock left for this sale.",
+                                reason = SaleConflicts.Stock
+                            });
                         }
 
                         const string sql = @"INSERT INTO Transactions
@@ -203,53 +209,46 @@ namespace Crooked.Controllers
             }
         }
 
-        // Every sale, newest first (used by Sales History).
-        [Authorize(Roles = UserRoles.Owner)]
-        [HttpGet]
-        public IActionResult GetTransactions()
+        // Takes a sale's units out of stock and adds them to today's sales (Philippine date), which the
+        // forecast learns from. Returns false when a product is archived or has fewer units than the sale
+        // needs; the caller then rolls back, so nothing is taken. Each product is updated once, in id
+        // order, so two sales of the same products lock them in the same order and can't deadlock.
+        private static async Task<bool> TakeStockAsync(
+            NpgsqlConnection connection, NpgsqlTransaction transaction, IEnumerable<TransactionItemInput> items)
         {
-            try
+            var sold = items
+                .GroupBy(item => item.ProductId)
+                .Select(group => (ProductId: group.Key, Quantity: group.Sum(item => item.Quantity)))
+                .OrderBy(item => item.ProductId);
+
+            foreach (var (productId, quantity) in sold)
             {
-                var transactions = new List<object>();
-
-                using (var conn = new NpgsqlConnection(_connectionString))
+                await using (var updateStock = new NpgsqlCommand(
+                    @"UPDATE products
+                      SET stock_quantity = stock_quantity - @quantity
+                      WHERE id = @id AND is_active = TRUE AND stock_quantity >= @quantity",
+                    connection, transaction))
                 {
-                    conn.Open();
-
-                    string sql = @"SELECT transaction_id, reference_id, date_time, total_amount, status, assisted_by, has_exchange, payment_method
-                                   FROM Transactions
-                                   ORDER BY date_time DESC";
-
-                    using (var cmd = new NpgsqlCommand(sql, conn))
-                    using (var reader = cmd.ExecuteReader())
-                    {
-                        while (reader.Read())
-                        {
-                            transactions.Add(new
-                            {
-                                transaction_id = reader["transaction_id"].ToString(),
-                                reference_id = reader["reference_id"].ToString(),
-                                date_time = ShopClock.Display(Convert.ToDateTime(reader["date_time"])),
-                                total_amount = Convert.ToDecimal(reader["total_amount"]),
-                                status = reader["status"].ToString(),
-                                has_exchange = Convert.ToBoolean(reader["has_exchange"]),
-                                assisted_by = reader["assisted_by"].ToString(),
-                                payment_method = reader["payment_method"] as string ?? PaymentMethods.Unknown
-                            });
-                        }
-                    }
+                    updateStock.Parameters.AddWithValue("@quantity", quantity);
+                    updateStock.Parameters.AddWithValue("@id", productId);
+                    if (await updateStock.ExecuteNonQueryAsync() == 0) return false;
                 }
 
-                return Ok(transactions);
+                await using var recordSales = new NpgsqlCommand(
+                    @"INSERT INTO product_daily_sales (product_id, sale_date, quantity_sold)
+                      VALUES (@id, (NOW() AT TIME ZONE 'Asia/Manila')::date, @quantity)
+                      ON CONFLICT (product_id, sale_date)
+                      DO UPDATE SET quantity_sold = product_daily_sales.quantity_sold + EXCLUDED.quantity_sold",
+                    connection, transaction);
+                recordSales.Parameters.AddWithValue("@id", productId);
+                recordSales.Parameters.AddWithValue("@quantity", quantity);
+                await recordSales.ExecuteNonQueryAsync();
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"ERROR: {ex.Message}");
-                return StatusCode(500, new { error = ex.Message });
-            }
+
+            return true;
         }
 
-        // One page of the audit logs, with search and filters applied.
+        // One page of sales for the Audit Logs and Sales History, with search and filters applied.
         [HttpGet("search")]
         public async Task<IActionResult> SearchTransactions([FromQuery] TransactionQuery query)
         {
@@ -373,264 +372,6 @@ namespace Crooked.Controllers
             var fileName = $"crkd-transactions-{ShopClock.ToShopTime(DateTime.UtcNow):yyyyMMdd-HHmm}.xlsx";
             return File(TransactionExcel.Build(transactions, items), TransactionExcel.ContentType, fileName);
         }
-
-        [Authorize(Roles = UserRoles.Owner)]
-        [HttpGet("import-template")]
-        public IActionResult DownloadImportTemplate() =>
-            File(TransactionExcel.BuildTemplate(), TransactionExcel.ContentType, "crkd-transactions-template.xlsx");
-
-        // Adds sales from an Excel workbook to the logs. A sale whose reference ID already exists is
-        // updated when any of its fields (or, when the file lists them, its items) differ, and skipped
-        // when nothing changed. Stock levels are never changed.
-        [Authorize(Roles = UserRoles.Owner)]
-        [HttpPost("import")]
-        [LiveUpdate(LiveTopics.Transactions, LiveTopics.Activity)]
-        public async Task<IActionResult> ImportTransactions(IFormFile? file)
-        {
-            if (file == null || file.Length == 0)
-                return BadRequest(new { message = "Choose an Excel file (.xlsx) to import." });
-            if (!string.Equals(Path.GetExtension(file.FileName), ".xlsx", StringComparison.OrdinalIgnoreCase))
-                return BadRequest(new { message = "Only Excel workbooks (.xlsx) can be imported." });
-            if (file.Length > MaxImportBytes)
-                return BadRequest(new { message = "The file is larger than 5 MB." });
-
-            await using var buffer = new MemoryStream();
-            await file.CopyToAsync(buffer);
-            buffer.Position = 0;
-            // .xlsx files are zip archives, which start with "PK\x03\x04".
-            var signature = new byte[4];
-            if (await buffer.ReadAsync(signature) < 4 || signature[0] != 0x50 || signature[1] != 0x4B || signature[2] != 0x03 || signature[3] != 0x04)
-                return BadRequest(new { message = "This file is not a valid Excel workbook (.xlsx)." });
-            buffer.Position = 0;
-
-            ParsedWorkbook workbook;
-            try
-            {
-                workbook = TransactionExcel.Parse(buffer);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Import Read Error: {ex.Message}");
-                return BadRequest(new { message = "The file could not be read as an Excel workbook (.xlsx)." });
-            }
-
-            var issues = workbook.Issues;
-            var rejected = workbook.Rejected;
-            var imported = 0;
-            var updated = 0;
-            var skipped = 0;
-
-            await using var connection = new NpgsqlConnection(_connectionString);
-            await connection.OpenAsync();
-            await using var dbTransaction = await connection.BeginTransactionAsync();
-            try
-            {
-                // Sales already in the logs, by reference ID (the oldest one if a reference repeats).
-                var existing = new Dictionary<string, StoredSale>(StringComparer.OrdinalIgnoreCase);
-                await using (var command = new NpgsqlCommand(@"
-                    SELECT transaction_id, reference_id, date_time, total_amount, status, has_exchange, assisted_by, payment_method
-                    FROM transactions
-                    WHERE lower(reference_id) = ANY(@references)
-                    ORDER BY transaction_id", connection, dbTransaction))
-                {
-                    command.Parameters.AddWithValue("@references",
-                        workbook.Transactions.Select(transaction => transaction.ReferenceId.ToLowerInvariant()).ToArray());
-                    await using var reader = await command.ExecuteReaderAsync();
-                    while (await reader.ReadAsync())
-                    {
-                        existing.TryAdd(reader.GetString(1), new StoredSale(
-                            reader.GetInt32(0),
-                            reader.GetDateTime(2),
-                            reader.GetDecimal(3),
-                            reader.IsDBNull(4) ? TransactionStatuses.Completed : reader.GetString(4),
-                            reader.GetBoolean(5),
-                            reader.IsDBNull(6) ? "Unknown" : reader.GetString(6),
-                            reader.IsDBNull(7) ? PaymentMethods.Unknown : reader.GetString(7)));
-                    }
-                }
-
-                var storedItems = existing.Values.ToDictionary(sale => sale.Id, _ => new List<string>());
-                await using (var command = new NpgsqlCommand(@"
-                    SELECT transaction_id, product_id, quantity, unit_price, exchange_reason
-                    FROM transaction_items
-                    WHERE transaction_id = ANY(@ids)", connection, dbTransaction))
-                {
-                    command.Parameters.AddWithValue("@ids", storedItems.Keys.ToArray());
-                    await using var reader = await command.ExecuteReaderAsync();
-                    while (await reader.ReadAsync())
-                    {
-                        storedItems[reader.GetInt32(0)].Add(
-                            ItemSignature(reader.GetInt32(1), reader.GetInt32(2), reader.GetDecimal(3), reader.GetString(4)));
-                    }
-                }
-
-                // Items are matched to products ignoring case, then saved with the product's own spelling.
-                var products = new Dictionary<string, (int Id, bool IsActive, string Name, string Category, string Size, string Color)>();
-                await using (var command = new NpgsqlCommand(@"
-                    SELECT id, COALESCE(product_name, ''), COALESCE(category, ''), COALESCE(size, ''), COALESCE(color, ''), is_active
-                    FROM products", connection, dbTransaction))
-                await using (var reader = await command.ExecuteReaderAsync())
-                {
-                    while (await reader.ReadAsync())
-                    {
-                        (int Id, bool IsActive, string Name, string Category, string Size, string Color) product =
-                            (reader.GetInt32(0), reader.GetBoolean(5), reader.GetString(1), reader.GetString(2),
-                             reader.GetString(3), reader.GetString(4));
-                        var key = ProductKey(product.Name, product.Size, product.Color);
-                        if (!products.TryGetValue(key, out var current) || (product.IsActive && !current.IsActive))
-                            products[key] = product;
-                    }
-                }
-
-                async Task InsertItemsAsync(int transactionId, ImportedTransaction transaction)
-                {
-                    foreach (var item in transaction.Items)
-                    {
-                        var product = products[ProductKey(item.ProductName, item.Size, item.Color)];
-                        await using var command = new NpgsqlCommand(@"
-                            INSERT INTO transaction_items
-                                (transaction_id, product_id, product_name, category, size, color, quantity, unit_price, exchange_reason)
-                            VALUES (@transaction_id, @product_id, @product_name, @category, @size, @color, @quantity, @unit_price, @exchange_reason)",
-                            connection, dbTransaction);
-                        command.Parameters.AddWithValue("@transaction_id", transactionId);
-                        command.Parameters.AddWithValue("@product_id", product.Id);
-                        command.Parameters.AddWithValue("@product_name", product.Name);
-                        command.Parameters.AddWithValue("@category", item.Category.Length > 0 ? item.Category : product.Category);
-                        command.Parameters.AddWithValue("@size", product.Size);
-                        command.Parameters.AddWithValue("@color", product.Color);
-                        command.Parameters.AddWithValue("@quantity", item.Quantity);
-                        command.Parameters.AddWithValue("@unit_price", item.UnitPrice);
-                        command.Parameters.AddWithValue("@exchange_reason", item.ExchangeReason);
-                        await command.ExecuteNonQueryAsync();
-                    }
-                }
-
-                foreach (var transaction in workbook.Transactions)
-                {
-                    var unknownItems = transaction.Items
-                        .Where(item => !products.ContainsKey(ProductKey(item.ProductName, item.Size, item.Color)))
-                        .ToList();
-                    if (unknownItems.Count > 0)
-                    {
-                        issues.AddRange(unknownItems.Select(item => new ImportIssue("Items", item.Row,
-                            $"No product named \"{item.ProductName}\" with size \"{item.Size}\" and color \"{item.Color}\" exists.")));
-                        rejected++;
-                        continue;
-                    }
-
-                    if (!existing.TryGetValue(transaction.ReferenceId, out var stored))
-                    {
-                        int transactionId;
-                        await using (var command = new NpgsqlCommand(@"
-                            INSERT INTO transactions (reference_id, date_time, total_amount, status, assisted_by, payment_method, has_exchange)
-                            VALUES (@reference_id, @date_time, @total_amount, @status, @assisted_by, @payment_method, @has_exchange)
-                            RETURNING transaction_id", connection, dbTransaction))
-                        {
-                            command.Parameters.AddWithValue("@reference_id", transaction.ReferenceId);
-                            command.Parameters.AddWithValue("@date_time", transaction.DateTimeUtc);
-                            command.Parameters.AddWithValue("@total_amount", transaction.TotalAmount);
-                            command.Parameters.AddWithValue("@status", transaction.Status);
-                            command.Parameters.AddWithValue("@assisted_by", transaction.SoldBy);
-                            command.Parameters.AddWithValue("@payment_method", transaction.PaymentMethod);
-                            command.Parameters.AddWithValue("@has_exchange", transaction.HasExchange);
-                            transactionId = Convert.ToInt32(await command.ExecuteScalarAsync());
-                        }
-
-                        await InsertItemsAsync(transactionId, transaction);
-                        imported++;
-                        continue;
-                    }
-
-                    // Excel keeps times to the second, so stored times are compared at that precision.
-                    var fieldsChanged = WholeSeconds(stored.DateTime) != WholeSeconds(transaction.DateTimeUtc)
-                        || stored.Total != transaction.TotalAmount
-                        || stored.Status != transaction.Status
-                        || stored.HasExchange != transaction.HasExchange
-                        || stored.SoldBy != transaction.SoldBy
-                        || stored.PaymentMethod != transaction.PaymentMethod;
-                    // Items are only compared when the file lists some for this sale; otherwise they are kept.
-                    var itemsChanged = transaction.Items.Count > 0 && !transaction.Items
-                        .Select(item => ItemSignature(products[ProductKey(item.ProductName, item.Size, item.Color)].Id,
-                            item.Quantity, item.UnitPrice, item.ExchangeReason))
-                        .Order()
-                        .SequenceEqual(storedItems[stored.Id].Order());
-
-                    if (!fieldsChanged && !itemsChanged)
-                    {
-                        skipped++;
-                        continue;
-                    }
-
-                    if (fieldsChanged)
-                    {
-                        await using var command = new NpgsqlCommand(@"
-                            UPDATE transactions
-                            SET date_time = @date_time, total_amount = @total_amount, status = @status,
-                                has_exchange = @has_exchange, assisted_by = @assisted_by, payment_method = @payment_method
-                            WHERE transaction_id = @transaction_id", connection, dbTransaction);
-                        command.Parameters.AddWithValue("@date_time", transaction.DateTimeUtc);
-                        command.Parameters.AddWithValue("@total_amount", transaction.TotalAmount);
-                        command.Parameters.AddWithValue("@status", transaction.Status);
-                        command.Parameters.AddWithValue("@has_exchange", transaction.HasExchange);
-                        command.Parameters.AddWithValue("@assisted_by", transaction.SoldBy);
-                        command.Parameters.AddWithValue("@payment_method", transaction.PaymentMethod);
-                        command.Parameters.AddWithValue("@transaction_id", stored.Id);
-                        await command.ExecuteNonQueryAsync();
-                    }
-
-                    if (itemsChanged)
-                    {
-                        await using (var command = new NpgsqlCommand(
-                            "DELETE FROM transaction_items WHERE transaction_id = @transaction_id", connection, dbTransaction))
-                        {
-                            command.Parameters.AddWithValue("@transaction_id", stored.Id);
-                            await command.ExecuteNonQueryAsync();
-                        }
-                        await InsertItemsAsync(stored.Id, transaction);
-                    }
-
-                    updated++;
-                }
-
-                if (imported + updated > 0)
-                {
-                    var parts = new List<string>();
-                    if (imported > 0) parts.Add($"imported {imported}");
-                    if (updated > 0) parts.Add($"updated {updated}");
-                    var action = string.Join(" and ", parts);
-                    await ActivityLog.WriteAsync(connection, dbTransaction, SessionClaims.FullNameOf(User), ActivityTypes.Import,
-                        $"{char.ToUpper(action[0])}{action[1..]} transaction{(imported + updated == 1 ? "" : "s")} from Excel");
-                }
-
-                await dbTransaction.CommitAsync();
-            }
-            catch (Exception ex)
-            {
-                await dbTransaction.RollbackAsync();
-                Console.WriteLine($"Import Error: {ex.Message}");
-                return StatusCode(500, new { message = "The import could not be saved. No transactions were added or changed." });
-            }
-
-            return Ok(new
-            {
-                imported,
-                updated,
-                skipped,
-                rejected,
-                totalIssues = issues.Count,
-                issues = issues.OrderBy(issue => issue.Sheet).ThenBy(issue => issue.Row).Take(50)
-            });
-        }
-
-        private sealed record StoredSale(int Id, DateTime DateTime, decimal Total, string Status, bool HasExchange, string SoldBy, string PaymentMethod);
-
-        private static long WholeSeconds(DateTime storedUtc) => ShopClock.ToShopTime(storedUtc).Ticks / TimeSpan.TicksPerSecond;
-
-        private static string ItemSignature(int productId, int quantity, decimal unitPrice, string exchangeReason) =>
-            string.Join("|", productId, quantity, unitPrice.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture), exchangeReason);
-
-        private static string ProductKey(string name, string size, string color) =>
-            string.Join("|", name.Trim().ToLowerInvariant(), size.Trim().ToLowerInvariant(), color.Trim().ToLowerInvariant());
 
         // WHERE clause for the search, status, payment and date filters; adds its parameters to command.
         private static string BuildFilter(TransactionQuery query, NpgsqlCommand command)

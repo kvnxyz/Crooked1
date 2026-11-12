@@ -143,59 +143,45 @@ function renderSalesChart(dates, products, { animate = true } = {}) {
 }
 
 /* =========================
-   REVENUE
-   The dropdown picks today, the last 7 days, this month or this year.
-   The server works out the dates in Philippine time and sends them back.
+   TODAY'S REVENUE
+   The server works out "today" in Philippine time and sends the date back.
 ========================= */
 let revenueRequest = 0;
-// True while the card shows an amount for the chosen period, so a failed live refresh can keep it.
+// True once the card shows an amount, so a failed live refresh can keep it.
 let revenueShown = false;
 
-function shopDateLabel(isoDate, withYear) {
-    return new Date(`${isoDate}T00:00:00`).toLocaleDateString('en-PH', {
-        month: 'short',
-        day: 'numeric',
-        ...(withYear ? { year: 'numeric' } : {})
-    });
-}
-
-// "Nov 11, 2026" for one day, otherwise "Nov 5 – Nov 11, 2026".
-function revenueRangeText(from, to) {
-    if (from === to) return shopDateLabel(to, true);
-    const sameYear = from.slice(0, 4) === to.slice(0, 4);
-    return `${shopDateLabel(from, !sameYear)} – ${shopDateLabel(to, true)}`;
+// "Nov 12, 2026"
+function shopDateLabel(isoDate) {
+    return new Date(`${isoDate}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 // quiet: a live refresh keeps the current amount on screen until the new one arrives,
 // and keeps it if the refresh fails.
 async function loadRevenue({ quiet = false } = {}) {
     const value = document.getElementById('revenueValue');
-    const range = document.getElementById('revenueRange');
-    const period = document.getElementById('revenuePeriod')?.value || 'today';
+    const note = document.getElementById('revenueNote');
     if (!value) return;
 
-    // Only the newest request may fill the card, in case the period changes mid-request.
+    // Only the newest request may fill the card, in case live refreshes overlap.
     const request = ++revenueRequest;
     if (!quiet) {
-        revenueShown = false;
         UI.textSkeleton(value, '70%');
-        if (range) UI.textSkeleton(range, '55%');
+        if (note) UI.textSkeleton(note, '55%');
     }
 
     try {
-        const data = await UI.fetchJson(
-            `${apiBase}/api/POS/Transaction/revenue?period=${encodeURIComponent(period)}`);
+        const data = await UI.fetchJson(`${apiBase}/api/POS/Transaction/today-revenue`);
         if (request !== revenueRequest) return;
         value.textContent = UI.formatPeso(data.revenue);
-        if (range) range.textContent = revenueRangeText(data.from, data.to);
+        if (note) note.textContent = shopDateLabel(data.date);
         revenueShown = true;
     } catch (error) {
         if (request !== revenueRequest) return;
         console.error('Revenue Error:', error);
-        // A failed live refresh leaves the amount on screen; the next sale or a period change updates it.
+        // A failed live refresh leaves the amount on screen; the next sale or a reload updates it.
         if (quiet && revenueShown) return;
         value.textContent = '—';
-        if (range) range.textContent = loadErrorText('revenue', error);
+        if (note) note.textContent = loadErrorText("today's revenue", error);
     }
 }
 
@@ -253,7 +239,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 restore();
             });
             loadRevenue();
-            document.getElementById('revenuePeriod')?.addEventListener('change', () => loadRevenue());
             Live.on(['transactions', 'exchanges', 'products'], () => loadSalesAnalytics({ quiet: true }));
             Live.on(['transactions'], () => loadRevenue({ quiet: true }));
         }

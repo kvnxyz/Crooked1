@@ -1,5 +1,22 @@
 /* ── SALES HISTORY ── */
 
-/* The sales history table uses the shared table styles in dashboard.css
-   (.table-page-section, .data-table-panel, .transaction-table).
+/* The table, filters and pagination use the shared styles in dashboard.css and components.css
+   (.data-table-panel, .transaction-table, .table-filters, .pagination).
    Put styles that only apply to this page here. */
+
+/* Pages hold at most 10 rows, so the table shows them all instead of scrolling inside the panel. */
+.data-table-panel .transaction-table-scroll {
+    max-height: none;
+}
+
+.sales-search-field {
+    flex: 1 1 260px;
+    min-width: 220px;
+}
+
+@media (max-width: 800px) {
+    /* .table-filters raises it above components.css's .table-filters .form-field. */
+    .table-filters .sales-search-field {
+        flex-basis: 100%;
+    }
+}

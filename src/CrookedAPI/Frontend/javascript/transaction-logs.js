@@ -1,12 +1,11 @@
 /* =========================
    AUDIT LOGS
    A read-only record of sales: search, filters, pages of 10,
-   Excel export/import and a details view. Exchanges are made
-   on the Exchanges page.
+   Excel export and a details view. Exchanges are made on the
+   Exchanges page.
 ========================= */
 const PAGE_SIZE = 10;
 const COLUMN_COUNT = 6;
-const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 
 const filters = { search: '', status: '', payment: '', from: '', to: '' };
 let currentPage = 1;
@@ -185,137 +184,6 @@ async function exportTransactions(event) {
 }
 
 /* =========================
-   IMPORT
-========================= */
-const importModal = document.getElementById('importModal');
-const importForm = document.getElementById('importForm');
-const importFile = document.getElementById('importFile');
-const importResult = document.getElementById('importResult');
-let importPending = false;
-
-function openImport() {
-    importForm.reset();
-    UI.filePickerButton(importFile).removeAttribute('aria-invalid');
-    importResult.hidden = true;
-    importResult.replaceChildren();
-    openModalElement(importModal, closeImport);
-}
-
-function closeImport() {
-    if (importPending) return;
-    closeModalElement(importModal);
-}
-
-function showImportMessage(text, tone) {
-    importResult.className = `import-result is-${tone}`;
-    importResult.replaceChildren(UI.el('p', 'import-result-message', text));
-    importResult.hidden = false;
-}
-
-// Returns an error message for a file that can't be imported, or '' when it looks fine.
-function importFileProblem(file) {
-    if (!file) return 'Choose an Excel file (.xlsx) to import.';
-    if (!/\.xlsx$/i.test(file.name)) return `"${file.name}" is not an Excel workbook. Only .xlsx files can be imported.`;
-    if (file.size > MAX_IMPORT_BYTES) return `"${file.name}" is larger than 5 MB.`;
-    return '';
-}
-
-function checkImportFile() {
-    const problem = importFileProblem(importFile.files[0]);
-    const picker = UI.filePickerButton(importFile);
-    if (problem) {
-        picker.setAttribute('aria-invalid', 'true');
-        showImportMessage(problem, 'error');
-    } else {
-        picker.removeAttribute('aria-invalid');
-        importResult.hidden = true;
-    }
-    return !problem;
-}
-
-function renderImportResult(result) {
-    const saved = result.imported + result.updated;
-    const tone = !result.rejected && saved + result.skipped > 0 ? 'success' : saved + result.skipped > 0 ? 'warning' : 'error';
-    importResult.className = `import-result is-${tone}`;
-
-    const stats = UI.el('ul', 'import-stats');
-    [
-        [result.imported, 'new'],
-        [result.updated, 'updated'],
-        [result.skipped, 'unchanged'],
-        [result.rejected, 'not imported']
-    ].forEach(([count, label]) => {
-        const item = UI.el('li');
-        item.append(UI.el('strong', null, String(count)), ` ${label}`);
-        stats.appendChild(item);
-    });
-
-    const content = [stats];
-    if (result.issues.length) {
-        content.push(UI.el('p', 'import-result-message', 'Fix these rows in the file, then import it again:'));
-        const list = UI.el('ul', 'import-issues');
-        result.issues.forEach(issue => {
-            const where = issue.row > 0 ? `${issue.sheet} sheet, row ${issue.row}` : `${issue.sheet} sheet`;
-            const item = UI.el('li');
-            item.append(UI.el('strong', null, `${where}: `), issue.message);
-            list.appendChild(item);
-        });
-        content.push(list);
-        if (result.totalIssues > result.issues.length) {
-            content.push(UI.el('p', 'form-hint', `…and ${result.totalIssues - result.issues.length} more.`));
-        }
-    } else if (!saved && !result.skipped) {
-        content.push(UI.el('p', 'import-result-message', 'The file has no sales to import.'));
-    }
-
-    importResult.replaceChildren(...content);
-    importResult.hidden = false;
-}
-
-async function submitImport(event) {
-    event.preventDefault();
-    if (importPending || !checkImportFile()) {
-        UI.filePickerButton(importFile).focus();
-        return;
-    }
-
-    const form = new FormData();
-    // The server logs the import under the signed-in account's name.
-    form.append('file', importFile.files[0]);
-
-    importPending = true;
-    const restore = UI.setLoading(document.getElementById('importSubmit'), 'Importing...');
-    try {
-        const result = await UI.fetchJson(`${apiBase}/api/POS/Transaction/import`, { method: 'POST', body: form });
-        renderImportResult(result);
-        if (result.imported + result.updated > 0) {
-            const parts = [];
-            if (result.imported) parts.push(`added ${result.imported} new`);
-            if (result.updated) parts.push(`updated ${result.updated}`);
-            UI.toast(`Import complete: ${parts.join(' and ')} transaction${result.imported + result.updated === 1 ? '' : 's'}.`, { tone: 'success' });
-            loadTransactions(1);
-        }
-    } catch (error) {
-        console.error('Import Error:', error);
-        showImportMessage(error.message || 'The import failed. Please try again.', 'error');
-    } finally {
-        importPending = false;
-        restore();
-    }
-}
-
-async function downloadTemplate(event) {
-    const restore = UI.setLoading(event.currentTarget, 'Downloading...');
-    try {
-        await UI.download(`${apiBase}/api/POS/Transaction/import-template`, 'crkd-transactions-template.xlsx');
-    } catch (error) {
-        UI.toast(error.message || 'The template could not be downloaded.', { tone: 'error' });
-    } finally {
-        restore();
-    }
-}
-
-/* =========================
    DETAILS (read-only)
 ========================= */
 const detailsModal = document.getElementById('transactionDetailsModal');
@@ -450,7 +318,6 @@ function closeDetails() {
 document.addEventListener('DOMContentLoaded', () => {
     const role = localStorage.getItem('userRole');
     if (role && role.toLowerCase() !== 'owner') {
-        document.getElementById('importButton')?.remove();
         document.getElementById('exportButton')?.remove();
         detailsExchangeLink.remove();
         document.getElementById('detailsSubtitle').textContent = "Sale records can't be edited.";
@@ -466,14 +333,6 @@ document.addEventListener('DOMContentLoaded', () => {
     clearFiltersButton.addEventListener('click', clearFilters);
 
     document.getElementById('exportButton')?.addEventListener('click', exportTransactions);
-    document.getElementById('importButton')?.addEventListener('click', openImport);
-    document.getElementById('templateButton').addEventListener('click', downloadTemplate);
-    importFile.addEventListener('change', checkImportFile);
-    importForm.addEventListener('submit', submitImport);
-    importModal.querySelectorAll('[data-close-import]').forEach(button => button.addEventListener('click', closeImport));
-    importModal.addEventListener('click', event => {
-        if (event.target === importModal) closeImport();
-    });
 
     detailsModal.querySelectorAll('[data-close-details]').forEach(button => button.addEventListener('click', closeDetails));
     detailsModal.addEventListener('click', event => {

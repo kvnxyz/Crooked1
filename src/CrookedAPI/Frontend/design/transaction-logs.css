@@ -118,62 +118,6 @@
     font-size: var(--font-size-sm);
 }
 
-/* Import modal */
-.import-modal-content {
-    width: min(100%, 600px);
-}
-
-.import-result {
-    --result-accent: var(--color-info);
-    padding: 14px 16px;
-    border: 1px solid var(--color-border);
-    border-left: 4px solid var(--result-accent);
-    border-radius: var(--radius-md);
-    background: var(--color-surface-2);
-    font-size: var(--font-size-md);
-}
-
-.import-result.is-success { --result-accent: var(--color-success); }
-.import-result.is-warning { --result-accent: var(--color-warning); }
-.import-result.is-error   { --result-accent: var(--color-danger); }
-
-.import-result-message {
-    margin: 0;
-    color: var(--color-text);
-}
-
-.import-stats {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 20px;
-    margin: 0 0 8px;
-    padding: 0;
-    list-style: none;
-    color: var(--color-text-muted);
-}
-
-.import-stats strong {
-    color: var(--color-text);
-    font-size: 18px;
-}
-
-.import-issues {
-    max-height: 200px;
-    margin: 8px 0 0;
-    padding: 0 0 0 18px;
-    overflow-y: auto;
-    color: var(--color-text-muted);
-    font-size: var(--font-size-sm);
-}
-
-.import-issues li + li {
-    margin-top: 4px;
-}
-
-.import-issues strong {
-    color: var(--color-text);
-}
-
 @media (max-width: 800px) {
     /* .table-filters raises it above components.css's .table-filters .form-field. */
     .table-filters .transaction-search-field {
