@@ -249,6 +249,8 @@ namespace Crooked.Controllers
         }
 
         // One page of sales for the Audit Logs and Sales History, with search and filters applied.
+        // totalRevenue covers every matching sale, not just this page. Only owners get it (null for
+        // staff), as revenue is owner-only elsewhere (today-revenue).
         [HttpGet("search")]
         public async Task<IActionResult> SearchTransactions([FromQuery] TransactionQuery query)
         {
@@ -257,10 +259,19 @@ namespace Crooked.Controllers
             await connection.OpenAsync();
 
             int totalItems;
+            decimal totalRevenue;
             await using (var countCommand = new NpgsqlCommand { Connection = connection })
             {
-                countCommand.CommandText = $"SELECT COUNT(*) FROM transactions t {BuildFilter(query, countCommand)}";
-                totalItems = Convert.ToInt32(await countCommand.ExecuteScalarAsync());
+                // Revenue counts completed sales (exchanged ones included), as today's revenue does,
+                // so voided and pending sales in the results don't add to it.
+                countCommand.CommandText = $@"
+                    SELECT COUNT(*), COALESCE(SUM(t.total_amount) FILTER (WHERE t.status = 'Completed'), 0)
+                    FROM transactions t
+                    {BuildFilter(query, countCommand)}";
+                await using var reader = await countCommand.ExecuteReaderAsync();
+                await reader.ReadAsync();
+                totalItems = Convert.ToInt32(reader.GetValue(0));
+                totalRevenue = Convert.ToDecimal(reader.GetValue(1));
             }
 
             var totalPages = Math.Max(1, (int)Math.Ceiling(totalItems / (double)pageSize));
@@ -280,7 +291,15 @@ namespace Crooked.Controllers
                 while (await reader.ReadAsync()) items.Add(TransactionStore.ReadSummary(reader));
             }
 
-            return Ok(new { items, page, pageSize, totalItems, totalPages });
+            return Ok(new
+            {
+                items,
+                page,
+                pageSize,
+                totalItems,
+                totalPages,
+                totalRevenue = User.IsInRole(UserRoles.Owner) ? totalRevenue : (decimal?)null
+            });
         }
 
         // Read-only view of one sale: what was bought and any exchanges made on it.

@@ -46,8 +46,7 @@ async function loadSalesHistory(page = currentPage, { quiet = false } = {}) {
 
         currentPage = data.page;
         renderSales(data.items, { fade: !quiet });
-        const count = `${data.totalItems.toLocaleString('en-PH')} sale${data.totalItems === 1 ? '' : 's'}`;
-        salesSummary.textContent = hasActiveFilters() ? `${count} match your search and dates.` : `${count} in total.`;
+        renderSummary(data);
         UI.pagination(salesPager, {
             page: data.page,
             totalPages: data.totalPages,
@@ -74,6 +73,23 @@ async function loadSalesHistory(page = currentPage, { quiet = false } = {}) {
             onAction: () => loadSalesHistory(currentPage)
         });
     }
+}
+
+// "85 sales in total • Total Revenue: ₱42,500.00". The revenue covers every matching sale
+// (completed and exchanged ones), not just this page, so it follows the search and dates.
+function renderSummary({ totalItems, totalRevenue }) {
+    const count = `${totalItems.toLocaleString('en-PH')} sale${totalItems === 1 ? '' : 's'}`;
+    const countText = hasActiveFilters()
+        ? `${count} ${totalItems === 1 ? 'matches' : 'match'} your search and dates`
+        : `${count} in total`;
+    if (totalRevenue === null || totalRevenue === undefined) {
+        salesSummary.textContent = `${countText}.`;
+        return;
+    }
+    salesSummary.replaceChildren(
+        `${countText} • Total Revenue: `,
+        UI.el('strong', 'table-summary-value', UI.formatPeso(totalRevenue))
+    );
 }
 
 function goToPage(page) {

@@ -89,7 +89,7 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 ## Transactions and exchanges
 
 - Sale records are read-only in the Audit Logs (the `transaction-logs` page). The page lists 10 per page from `GET /api/POS/Transaction/search` (search, status, payment and date filters). The owner can export the filtered sales and their items to `.xlsx` with `/export`. There is no import: sales only come from the POS, so no file can add or change a sale.
-- The `sales-history` page reads the same `/search` endpoint, 10 sales per page, with search (reference ID, staff or product) and a date range, and shows who made each sale.
+- The `sales-history` page reads the same `/search` endpoint, 10 sales per page, with search (reference ID, staff or product) and a date range, and shows who made each sale. Its summary line shows the count and the total revenue of every matching sale ("85 sales in total • Total Revenue: ₱42,500.00"). `/search` returns that as `totalRevenue`: completed sales only (exchanged ones included, voided and pending left out), and `null` for staff, because revenue is owner-only.
 - `transactions.payment_method` is `Cash`, `GCash` or `Unknown`.
 - An exchanged sale keeps `status = 'Completed'` (so it still counts as revenue) and gets `has_exchange = TRUE`. The API shows it as "Exchanged".
 - Exchanges go through `ExchangeController` and follow `ExchangePolicy`: only items bought as a single piece (quantity 1), only within 3 days of the sale (Philippine dates), for the same product (name and category) at the same price in a different size and/or color. Items bought in larger quantities are not shown. Each exchange:

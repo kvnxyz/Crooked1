@@ -9,6 +9,13 @@
     max-height: none;
 }
 
+/* The total revenue in the summary line under the filters. */
+.table-summary-value {
+    color: var(--color-text);
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 .sales-search-field {
     flex: 1 1 260px;
     min-width: 220px;
