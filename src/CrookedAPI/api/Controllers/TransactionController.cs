@@ -359,37 +359,8 @@ namespace Crooked.Controllers
                 }
             }
 
-            var items = new List<TransactionItemSheetRow>();
-            await using (var command = new NpgsqlCommand { Connection = connection })
-            {
-                command.CommandText = $@"
-                    SELECT t.reference_id, ti.product_name, ti.category, ti.size, ti.color, ti.quantity, ti.unit_price, ti.exchange_reason
-                    FROM transaction_items ti
-                    JOIN (
-                        SELECT t.transaction_id, t.reference_id, t.date_time
-                        FROM transactions t
-                        {BuildFilter(query, command)}
-                        ORDER BY t.date_time DESC, t.transaction_id DESC
-                        LIMIT {MaxExportRows}
-                    ) t ON t.transaction_id = ti.transaction_id
-                    ORDER BY t.date_time DESC, t.transaction_id DESC, ti.transaction_item_id";
-                await using var reader = await command.ExecuteReaderAsync();
-                while (await reader.ReadAsync())
-                {
-                    items.Add(new TransactionItemSheetRow(
-                        reader.IsDBNull(0) ? "" : reader.GetString(0),
-                        reader.GetString(1),
-                        reader.GetString(2),
-                        reader.GetString(3),
-                        reader.GetString(4),
-                        reader.GetInt32(5),
-                        reader.GetDecimal(6),
-                        reader.GetString(7)));
-                }
-            }
-
             var fileName = $"crkd-transactions-{ShopClock.ToShopTime(DateTime.UtcNow):yyyyMMdd-HHmm}.xlsx";
-            return File(TransactionExcel.Build(transactions, items), TransactionExcel.ContentType, fileName);
+            return File(TransactionExcel.Build(transactions), TransactionExcel.ContentType, fileName);
         }
 
         // WHERE clause for the search, status, payment and date filters; adds its parameters to command.

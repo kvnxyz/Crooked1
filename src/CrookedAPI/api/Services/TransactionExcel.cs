@@ -3,13 +3,12 @@ using Crooked.Models;
 
 namespace Crooked.Services
 {
-    // Builds the transactions workbook for the Audit Logs export: one sheet of sales and one of their items.
+    // Builds the transactions workbook for the Sales Record export: one sheet of sales, without their items.
     public static class TransactionExcel
     {
         public const string ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
         private const string TransactionsSheet = "Transactions";
-        private const string ItemsSheet = "Items";
         private const string PesoFormat = "\"₱\"#,##0.00";
         private const string DateFormat = "yyyy-mm-dd hh:mm AM/PM";
 
@@ -19,17 +18,10 @@ namespace Crooked.Services
             ("Sold By", 22), ("Status", 14), ("Total Amount", 16)
         };
 
-        private static readonly (string Name, double Width)[] ItemColumns =
-        {
-            ("Reference ID", 30), ("Product", 28), ("Category", 16), ("Size", 10), ("Color", 14),
-            ("Quantity", 10), ("Unit Price", 14), ("Line Total", 14), ("Exchange Reason", 22)
-        };
-
-        public static byte[] Build(IReadOnlyList<TransactionSheetRow> transactions, IReadOnlyList<TransactionItemSheetRow> items)
+        public static byte[] Build(IReadOnlyList<TransactionSheetRow> transactions)
         {
             using var workbook = new XLWorkbook();
             WriteTransactions(workbook, transactions);
-            WriteItems(workbook, items);
             return Save(workbook);
         }
 
@@ -48,26 +40,6 @@ namespace Crooked.Services
                 sheet.Cell(row, 6).Value = transaction.Status;
                 sheet.Cell(row, 7).Value = transaction.TotalAmount;
                 sheet.Cell(row, 7).Style.NumberFormat.Format = PesoFormat;
-                row++;
-            }
-        }
-
-        private static void WriteItems(XLWorkbook workbook, IReadOnlyList<TransactionItemSheetRow> items)
-        {
-            var sheet = AddSheet(workbook, ItemsSheet, ItemColumns);
-            var row = 2;
-            foreach (var item in items)
-            {
-                sheet.Cell(row, 1).Value = item.ReferenceId;
-                sheet.Cell(row, 2).Value = item.ProductName;
-                sheet.Cell(row, 3).Value = item.Category;
-                sheet.Cell(row, 4).Value = item.Size;
-                sheet.Cell(row, 5).Value = item.Color;
-                sheet.Cell(row, 6).Value = item.Quantity;
-                sheet.Cell(row, 7).Value = item.UnitPrice;
-                sheet.Cell(row, 8).Value = item.UnitPrice * item.Quantity;
-                sheet.Cell(row, 9).Value = item.ExchangeReason;
-                sheet.Range(row, 7, row, 8).Style.NumberFormat.Format = PesoFormat;
                 row++;
             }
         }

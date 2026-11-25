@@ -1,5 +1,5 @@
 /* =========================
-   AUDIT LOGS
+   SALES RECORD
    A read-only record of sales: search, filters, pages of 10,
    Excel export and a details view. Exchanges are made on the
    Exchanges page.

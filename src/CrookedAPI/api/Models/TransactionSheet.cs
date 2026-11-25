@@ -1,6 +1,6 @@
 namespace Crooked.Models
 {
-    // Rows of the Transactions and Items sheets in the Excel export.
+    // A row of the Transactions sheet in the Excel export.
     public sealed record TransactionSheetRow(
         int TransactionId,
         string ReferenceId,
@@ -9,14 +9,4 @@ namespace Crooked.Models
         string SoldBy,
         string Status,
         decimal TotalAmount);
-
-    public sealed record TransactionItemSheetRow(
-        string ReferenceId,
-        string ProductName,
-        string Category,
-        string Size,
-        string Color,
-        int Quantity,
-        decimal UnitPrice,
-        string ExchangeReason);
 }

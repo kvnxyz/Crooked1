@@ -1,5 +1,5 @@
 /* =========================
-   RECENT ACTIVITY LOGS (owner only)
+   AUDIT TRAILS (owner only)
    Everything people do in the system, newest first: sales, exchanges, product, discount and
    account changes, imports, and logins. Search, filters and pages of 20. Entries are written
    by the server (ActivityLog), so this page only reads them.
@@ -114,7 +114,7 @@ async function loadActivity(page = activityPage, { quiet = false } = {}) {
         activitySummary.textContent = 'Activity could not be loaded.';
         UI.tableMessage(activityBody, ACTIVITY_COLUMNS, {
             isError: true,
-            title: 'Unable to load activity logs',
+            title: 'Unable to load the audit trails',
             message: error.message,
             actionLabel: 'Try again',
             onAction: () => loadActivity(activityPage)
