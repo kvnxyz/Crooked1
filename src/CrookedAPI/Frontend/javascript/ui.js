@@ -377,7 +377,9 @@ const UI = (() => {
         button.append(icon('fa-arrow-up-from-bracket'), input.dataset.filePicker || 'Choose file');
         const name = el('span', 'file-picker-name', 'No file chosen');
         name.id = `${input.id}-file-name`;
-        button.setAttribute('aria-describedby', name.id);
+        // The button reads out the chosen file's name, then any hint the input pointed to.
+        button.setAttribute('aria-describedby', [name.id, input.getAttribute('aria-describedby')].filter(Boolean).join(' '));
+        input.removeAttribute('aria-describedby');
 
         input.before(picker);
         input.classList.add('file-picker-input');

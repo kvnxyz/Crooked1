@@ -226,7 +226,9 @@
 
                             <div class="form-field">
                                 <label for="prodImage">Product image</label>
-                                <input type="file" id="prodImage" accept="image/*" data-file-picker="Choose image">
+                                <input type="file" id="prodImage" accept="image/*" data-file-picker="Choose image"
+                                    aria-describedby="prodImageHint">
+                                <p id="prodImageHint" class="field-hint">Accepted files: JPG, PNG, WebP or GIF images.</p>
                             </div>
 
                             <div class="form-field">
@@ -335,7 +337,9 @@
                     <form id="editDetailsForm" class="modal-form">
                         <div class="form-field">
                             <label for="detailsImage">Replace product photo</label>
-                            <input type="file" id="detailsImage" accept="image/*" data-file-picker="Choose new image">
+                            <input type="file" id="detailsImage" accept="image/*" data-file-picker="Choose new image"
+                                aria-describedby="detailsImageHint">
+                            <p id="detailsImageHint" class="field-hint">Accepted files: JPG, PNG, WebP or GIF images.</p>
                             <img id="detailsImagePreview" class="edit-product-image-preview" alt="Current product photo" hidden>
                         </div>
 
@@ -430,7 +434,7 @@
         </div>
     </template>
 
-    <script src="../javascript/ui.js?v=8"></script>
+    <script src="../javascript/ui.js?v=9"></script>
     <script src="../javascript/live.js?v=3"></script>
     <script src="../javascript/layout.js?v=10"></script>
     <script src="../javascript/account.js?v=4"></script>
