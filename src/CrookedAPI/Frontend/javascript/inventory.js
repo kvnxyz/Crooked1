@@ -6,15 +6,17 @@ let inventoryProducts = [];
 
 // stock_status comes from the API (StockStatus.Of), so this page and the Products page agree on
 // what counts as low: stock at or below the variant's forecast-based threshold.
-const isOutOfStock = item => item.stock_status === 'out';
+// Orders items by their stock_status, using rank (lowest first); an unknown status ranks as in stock.
+const byStatus = rank => (a, b) => (rank[a.stock_status] ?? rank.in) - (rank[b.stock_status] ?? rank.in);
 
+// "In stock first" (the default): in stock, then low, then out of stock.
+// "Out of stock first": out of stock, then low, then in stock.
 // "Low stock first": low items (fewest left first), then out-of-stock ones, then the rest.
-// The default keeps the API's order and only moves out-of-stock items to the bottom.
-const LOW_FIRST_RANK = { low: 0, out: 1, in: 2 };
+// Within each group the items keep the API's order.
 const SORTS = {
-    default: (a, b) => isOutOfStock(a) - isOutOfStock(b),
-    'low-first': (a, b) =>
-        (LOW_FIRST_RANK[a.stock_status] ?? 2) - (LOW_FIRST_RANK[b.stock_status] ?? 2)
+    'in-first': byStatus({ in: 0, low: 1, out: 2 }),
+    'out-first': byStatus({ out: 0, low: 1, in: 2 }),
+    'low-first': (a, b) => byStatus({ low: 0, out: 1, in: 2 })(a, b)
         || (a.stock_status === 'low' ? a.stock_quantity - b.stock_quantity : 0)
 };
 
@@ -43,7 +45,7 @@ function renderInventoryTable({ fade = false } = {}) {
     if (!tableBody) return;
 
     const query = document.getElementById('inventorySearch')?.value.trim().toLocaleLowerCase() || '';
-    const sort = SORTS[document.getElementById('inventorySort')?.value] || SORTS.default;
+    const sort = SORTS[document.getElementById('inventorySort')?.value] || SORTS['in-first'];
     // sort() is stable, so items that compare equal keep the API's order.
     const products = inventoryProducts
         .filter(item =>
