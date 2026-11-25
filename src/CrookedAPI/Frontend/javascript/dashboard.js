@@ -3,33 +3,29 @@
 ========================= */
 let salesChartInstance;
 
-// Chart text and grid colours come from the theme tokens in dashboard.css.
+// Chart colours come from the theme tokens in dashboard.css.
 function chartThemeColors() {
     const styles = getComputedStyle(document.documentElement);
     return {
         foreground: styles.getPropertyValue('--color-text-muted').trim(),
-        grid: styles.getPropertyValue('--chart-grid').trim()
+        grid: styles.getPropertyValue('--chart-grid').trim(),
+        line: styles.getPropertyValue('--color-primary').trim(),
+        fill: styles.getPropertyValue('--chart-fill').trim()
     };
-}
-
-// Darker lines on the light theme keep every series at 3:1 contrast or better.
-function salesLineColor(index, alpha = 1) {
-    const lightness = document.documentElement.dataset.theme === 'light' ? 32 : 62;
-    return `hsla(${(index * 137.5) % 360}, 70%, ${lightness}%, ${alpha})`;
 }
 
 function updateSalesChartTheme() {
     if (!salesChartInstance) return;
 
-    const { foreground, grid } = chartThemeColors();
+    const { foreground, grid, line, fill } = chartThemeColors();
     salesChartInstance.options.scales.x.ticks.color = foreground;
     salesChartInstance.options.scales.x.grid.color = grid;
     salesChartInstance.options.scales.y.ticks.color = foreground;
     salesChartInstance.options.scales.y.grid.color = grid;
-    salesChartInstance.options.plugins.legend.labels.color = foreground;
-    salesChartInstance.data.datasets.forEach((dataset, index) => {
-        dataset.borderColor = salesLineColor(index);
-        dataset.backgroundColor = salesLineColor(index, 0.12);
+    salesChartInstance.data.datasets.forEach(dataset => {
+        dataset.borderColor = line;
+        dataset.pointBackgroundColor = line;
+        dataset.backgroundColor = fill;
     });
     salesChartInstance.update('none');
 }
@@ -62,10 +58,10 @@ async function loadSalesAnalytics({ quiet = false } = {}) {
 
     try {
         const analytics = await UI.fetchJson(`${apiBase}/api/Forecasting/daily-sales`);
-        const totalUnitsSold = analytics.products.reduce(
-            (total, product) => total + product.dailySales.reduce((dailyTotal, units) => dailyTotal + units, 0),
-            0
-        );
+        // The chart shows one line: the units sold each day, added up across every product.
+        const dailyTotals = analytics.dates.map((_, day) =>
+            analytics.products.reduce((total, product) => total + (product.dailySales[day] || 0), 0));
+        const totalUnitsSold = dailyTotals.reduce((total, units) => total + units, 0);
         if (totalProductsSold) totalProductsSold.textContent = totalUnitsSold.toLocaleString('en-PH');
         if (retry) retry.hidden = true;
 
@@ -75,12 +71,10 @@ async function loadSalesAnalytics({ quiet = false } = {}) {
             return;
         }
 
-        // Products with no sales would only add flat lines at zero, so the chart leaves them out.
-        const soldProducts = analytics.products.filter(product => product.dailySales.some(units => units > 0));
-        renderSalesChart(analytics.dates, soldProducts, { animate: !quiet });
+        renderSalesChart(analytics.dates, dailyTotals, { animate: !quiet });
         salesAnalyticsShown = true;
-        if (status) status.textContent = soldProducts.length
-            ? `Units sold per day over the last 7 days, for the ${soldProducts.length} product${soldProducts.length === 1 ? '' : 's'} that sold. Click or tap a name below the chart to hide or show its line.`
+        if (status) status.textContent = totalUnitsSold
+            ? 'Total units sold per day over the last 7 days, across all products.'
             : 'No products were sold in the last 7 days.';
     } catch (error) {
         console.error('Sales Analytics Error:', error);
@@ -94,13 +88,13 @@ async function loadSalesAnalytics({ quiet = false } = {}) {
     }
 }
 
-function renderSalesChart(dates, products, { animate = true } = {}) {
+function renderSalesChart(dates, dailyTotals, { animate = true } = {}) {
     const canvas = document.getElementById('salesChart');
     if (!canvas) return;
 
     if (salesChartInstance) salesChartInstance.destroy();
 
-    const { foreground: chartForeground, grid: chartGrid } = chartThemeColors();
+    const { foreground: chartForeground, grid: chartGrid, line, fill } = chartThemeColors();
     const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     const labels = dates.map(date =>
         new Date(`${date}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }));
@@ -108,15 +102,19 @@ function renderSalesChart(dates, products, { animate = true } = {}) {
         type: 'line',
         data: {
             labels,
-            datasets: products.map((product, index) => ({
-                label: UI.variantName(product.productName, product.size, product.color),
-                data: product.dailySales,
-                borderColor: salesLineColor(index),
-                backgroundColor: salesLineColor(index, 0.12),
-                borderWidth: 2,
-                tension: 0.4,
-                fill: false
-            }))
+            datasets: [{
+                label: 'Units sold',
+                data: dailyTotals,
+                borderColor: line,
+                pointBackgroundColor: line,
+                backgroundColor: fill,
+                borderWidth: 2.5,
+                pointRadius: 4,
+                pointHoverRadius: 6,
+                // Smooth, but never curves below zero or above a day's real total.
+                cubicInterpolationMode: 'monotone',
+                fill: 'origin'
+            }]
         },
         options: {
             responsive: true,
@@ -132,11 +130,8 @@ function renderSalesChart(dates, products, { animate = true } = {}) {
                 }
             },
             plugins: {
-                legend: {
-                    display: true,
-                    position: 'bottom',
-                    labels: { color: chartForeground }
-                }
+                // One line needs no legend; hovering a day shows its total.
+                legend: { display: false }
             }
         }
     });

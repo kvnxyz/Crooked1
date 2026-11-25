@@ -61,6 +61,7 @@
     --focus-theme: #8ab4f8;
     --color-focus: var(--focus-theme);
     --chart-grid: rgba(255, 255, 255, 0.1);
+    --chart-fill: rgba(255, 255, 255, 0.08);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.55);
 
@@ -136,6 +137,7 @@ html[data-theme="light"] {
 
     --focus-theme: #1a56db;
     --chart-grid: rgba(0, 0, 0, 0.1);
+    --chart-fill: rgba(0, 0, 0, 0.06);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.08);
     --shadow-lg: 0 18px 50px rgba(0, 0, 0, 0.18);
 }
