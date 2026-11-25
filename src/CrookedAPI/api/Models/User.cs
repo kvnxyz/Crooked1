@@ -7,6 +7,7 @@
         public string Password { get; set; } = string.Empty;
         public string Role { get; set; } = string.Empty;
         public string FullName { get; set; } = string.Empty;
+        public string Email { get; set; } = string.Empty;
     }
 
     public class LoginRequest
@@ -33,6 +34,37 @@
     public class ChangeRoleRequest
     {
         public string Role { get; set; } = string.Empty;
+    }
+
+    // The owner setting an account's email (Accounts page).
+    public class SetEmailRequest
+    {
+        public string Email { get; set; } = string.Empty;
+    }
+
+    // Rules for an account's email, where Forgot Password sends its codes.
+    // staff-management.js checks the same rule (isValidEmail) before a form is sent.
+    public static class EmailPolicy
+    {
+        public const int MaxLength = 254;
+        public const string InvalidMessage = "Enter a valid email address, like name@example.com.";
+
+        // The email trimmed and in lower case, or null when it isn't a valid address.
+        public static string? Normalize(string? email)
+        {
+            var value = email?.Trim().ToLowerInvariant();
+            if (string.IsNullOrEmpty(value) || value.Length > MaxLength) return null;
+
+            var at = value.IndexOf('@');
+            var valid = at > 0
+                && at == value.LastIndexOf('@')
+                && value.IndexOf('.', at) > at + 1
+                && !value.EndsWith('.')
+                && !value.Any(char.IsWhiteSpace)
+                && System.Net.Mail.MailAddress.TryCreate(value, out var parsed)
+                && parsed.Address == value;
+            return valid ? value : null;
+        }
     }
 
     // Rules for every new password: staff accounts, password changes and the owner's password reset.

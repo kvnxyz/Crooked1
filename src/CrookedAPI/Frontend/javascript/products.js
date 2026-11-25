@@ -673,6 +673,27 @@ async function submitNewProduct({ name, category, priceText, rows, variants }) {
 }
 
 /* =========================
+   PRODUCT PHOTOS
+   JPG, PNG or WebP only, the same file names ProductRules.PhotoProblem accepts on the
+   server (which also checks the file's contents).
+========================= */
+const PHOTO_FILE_NAME = /\.(jpe?g|png|webp)$/i;
+
+// Clears a chosen file that isn't a JPG, PNG or WebP image and says why. It stops the input's
+// later change listeners (the photo preview, the form's unsaved-changes flag) from seeing the
+// file, then tells the file picker the input is empty again.
+function refuseWrongPhoto(event) {
+    const input = event.currentTarget;
+    const file = input.files[0];
+    if (!file || PHOTO_FILE_NAME.test(file.name)) return;
+
+    event.stopImmediatePropagation();
+    input.value = '';
+    input.dispatchEvent(new Event('change'));
+    showDialog('Unsupported File', `"${file.name}" isn't a JPG, PNG or WebP image. Choose a photo in one of those formats.`);
+}
+
+/* =========================
    EDIT ONE SIZE OR COLOR
    Its size, color and stock. The name, category, price and photo are shared, so they are
    changed with Edit details instead.
@@ -790,6 +811,7 @@ function openEditDetailsModal() {
     const photo = productPhoto(variants);
     const preview = document.getElementById('detailsImagePreview');
     preview.onerror = () => { preview.hidden = true; };
+    preview.dataset.currentPhoto = photo || '';
     preview.src = photo;
     preview.hidden = !photo;
     const imageInput = document.getElementById('detailsImage');
@@ -910,12 +932,22 @@ document.addEventListener('DOMContentLoaded', () => {
         input?.addEventListener('input', () => limitAmountInput(input));
     });
 
-    // Shows a newly chosen photo in place of the current one.
+    // Added before the preview below, so a refused file never shows in it.
+    ['prodImage', 'detailsImage'].forEach(id =>
+        document.getElementById(id)?.addEventListener('change', refuseWrongPhoto));
+
+    // Shows a newly chosen photo in place of the current one, or the current one again when
+    // the choice is cleared.
     document.getElementById('detailsImage')?.addEventListener('change', event => {
         const input = event.currentTarget;
         const preview = document.getElementById('detailsImagePreview');
         const imageFile = input.files[0];
-        if (!imageFile) return;
+        if (!imageFile) {
+            const current = preview.dataset.currentPhoto;
+            if (current) preview.src = current;
+            preview.hidden = !current;
+            return;
+        }
 
         preview.src = URL.createObjectURL(imageFile);
         preview.hidden = false;

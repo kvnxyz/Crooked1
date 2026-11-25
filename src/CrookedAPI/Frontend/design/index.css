@@ -243,14 +243,21 @@ html.theme-transition *::after {
     cursor: pointer;
 }
 
-.link-button:hover {
+.link-button:hover:not(:disabled) {
     color: var(--color-text);
+}
+
+.link-button:disabled {
+    cursor: not-allowed;
+    text-decoration: none;
+    opacity: 0.7;
 }
 
 /* =========================
    FORM CONTROLS
 ========================= */
 input[type="text"],
+input[type="email"],
 input[type="password"] {
     width: 100%;
     min-height: var(--control-height);
@@ -288,6 +295,12 @@ input[aria-invalid="true"] {
     color: var(--color-text);
     font-size: var(--font-size-sm);
     font-weight: 700;
+}
+
+.field-hint {
+    margin: 0;
+    color: var(--color-text-subtle);
+    font-size: var(--font-size-xs);
 }
 
 /* Status line under a form: "Logging in...", errors and success messages. */
@@ -380,8 +393,24 @@ html[data-theme="light"] .logo-img {
 }
 
 /* =========================
-   OWNER RECOVERY MODAL
+   FORGOT PASSWORD MODAL
 ========================= */
+/* The emailed code: 5 capital letters, spaced out so they are easy to compare with the email. */
+.code-input {
+    font-weight: 700;
+    letter-spacing: 0.4em;
+    text-transform: uppercase;
+}
+
+/* "Send a new code" and "Use a different email" */
+.reset-links {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 4px 12px;
+    margin: -4px -8px 0;
+}
+
 .modal {
     position: fixed;
     inset: 0;

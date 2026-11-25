@@ -14,9 +14,16 @@ const userField = document.getElementById('user');
 const passField = document.getElementById('pass');
 const loginMessage = document.getElementById('message');
 const resetModal = document.getElementById('reset-modal');
+const resetDescription = document.getElementById('resetDescription');
+const forgotForm = document.getElementById('forgotForm');
+const forgotMessage = document.getElementById('forgot-msg');
+const emailField = document.getElementById('reset-email');
 const resetForm = document.getElementById('resetForm');
 const resetMessage = document.getElementById('reset-msg');
-const resetFields = ['reset-username', 'recovery-key', 'new-password'].map(id => document.getElementById(id));
+const codeField = document.getElementById('reset-code');
+const newPasswordField = document.getElementById('new-password');
+const confirmPasswordField = document.getElementById('confirm-password');
+const resendButton = document.getElementById('resend-code');
 
 // Keeps Tab and Shift+Tab inside an open dialog or modal (same as layout.js).
 function trapFocus(event, container) {
@@ -215,31 +222,62 @@ async function login(event) {
 loginForm.addEventListener('submit', login);
 
 /* =========================
-   OWNER RECOVERY
+   FORGOT PASSWORD (owners and staff)
+   Step 1 (forgotForm) emails a 5-letter code to the account's email; step 2 (resetForm) takes
+   the code and a new password. Codes expire after 5 minutes (PasswordResetCodes on the server).
 ========================= */
 // Opening moves focus into the form and keeps Tab inside it; Escape, Cancel and the
 // close button ask before discarding typed values; closing returns focus to "Forgot password?".
+const EMAIL_STEP_TEXT = "Enter the email on your account and we'll send you a 5-letter code.";
+const CODE_LENGTH = 5;
 let resetReturnFocus = null;
+let resetEmail = '';
+let resendTimer = null;
+let resetPending = false;
+
+function showEmailStep() {
+    stopResendCooldown();
+    resetForm.hidden = true;
+    forgotForm.hidden = false;
+    resetDescription.textContent = EMAIL_STEP_TEXT;
+    setMessage(forgotMessage, '');
+    emailField.focus();
+}
+
+function showCodeStep(message, resendSeconds) {
+    resetForm.reset();
+    [codeField, newPasswordField, confirmPasswordField].forEach(field => field.removeAttribute('aria-invalid'));
+    setMessage(resetMessage, '');
+    forgotForm.hidden = true;
+    resetForm.hidden = false;
+    resetDescription.textContent = message;
+    startResendCooldown(resendSeconds);
+    codeField.focus();
+}
 
 function openReset() {
     resetReturnFocus = document.activeElement;
-    resetForm.reset();
-    resetFields.forEach(field => field.removeAttribute('aria-invalid'));
-    setMessage(resetMessage, '');
+    forgotForm.reset();
+    emailField.removeAttribute('aria-invalid');
     resetModal.hidden = false;
     document.body.classList.add('modal-open');
-    resetFields[0].focus();
+    showEmailStep();
 }
 
 function closeReset() {
+    stopResendCooldown();
     resetModal.hidden = true;
     document.body.classList.remove('modal-open');
+    setMessage(forgotMessage, '');
     setMessage(resetMessage, '');
     restoreFocus(resetReturnFocus);
 }
 
+// Only the fields of the step on screen count as unsaved changes.
 function requestCloseReset() {
-    if (!resetFields.some(field => field.value)) {
+    if (resetPending) return;
+    const typed = resetForm.hidden ? [emailField] : [codeField, newPasswordField, confirmPasswordField];
+    if (!typed.some(field => field.value)) {
         closeReset();
         return;
     }
@@ -253,66 +291,158 @@ function requestCloseReset() {
     );
 }
 
-function submitReset(event) {
-    event.preventDefault();
+// "Send a new code" waits as long as the server does before it sends another code to the same account.
+function startResendCooldown(seconds) {
+    stopResendCooldown();
+    let left = seconds || 60;
+    const tick = () => {
+        resendButton.disabled = left > 0;
+        resendButton.textContent = left > 0 ? `Send a new code (${left}s)` : 'Send a new code';
+        if (left-- <= 0) stopResendCooldown();
+    };
+    tick();
+    resendTimer = setInterval(tick, 1000);
+}
 
-    if (!checkRequired(resetFields)) {
+function stopResendCooldown() {
+    clearInterval(resendTimer);
+    resendTimer = null;
+}
+
+async function requestCode(email) {
+    const response = await fetch(`${API_BASE}/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.message || 'The code could not be sent. Please try again.');
+    return result;
+}
+
+async function sendCode(event) {
+    event.preventDefault();
+    if (resetPending) return;
+
+    if (!checkRequired([emailField])) {
+        setMessage(forgotMessage, 'Please enter your email.', 'error');
+        return;
+    }
+    if (!UI.isValidEmail(emailField.value)) {
+        emailField.setAttribute('aria-invalid', 'true');
+        emailField.focus();
+        setMessage(forgotMessage, UI.emailRulesText, 'error');
+        return;
+    }
+
+    resetPending = true;
+    const restore = UI.setLoading(forgotForm.querySelector('[type="submit"]'), 'Sending...');
+    setMessage(forgotMessage, '');
+    try {
+        const email = emailField.value.trim();
+        const result = await requestCode(email);
+        resetEmail = email;
+        showCodeStep(result.message, result.resendSeconds);
+    } catch (error) {
+        setMessage(forgotMessage, error instanceof TypeError ? 'Server error. Please try again.' : error.message, 'error');
+    } finally {
+        restore();
+        resetPending = false;
+    }
+}
+
+async function resendCode() {
+    if (resetPending) return;
+    resetPending = true;
+    setMessage(resetMessage, 'Sending a new code...');
+    try {
+        const result = await requestCode(resetEmail);
+        resetDescription.textContent = result.message;
+        setMessage(resetMessage, 'A new code is on its way. Use the newest one.', 'success');
+        startResendCooldown(result.resendSeconds);
+        codeField.value = '';
+        codeField.focus();
+    } catch (error) {
+        setMessage(resetMessage, error instanceof TypeError ? 'Server error. Please try again.' : error.message, 'error');
+    } finally {
+        resetPending = false;
+    }
+}
+
+function markInvalid(field, text) {
+    field.setAttribute('aria-invalid', 'true');
+    field.focus();
+    setMessage(resetMessage, text, 'error');
+}
+
+async function submitReset(event) {
+    event.preventDefault();
+    if (resetPending) return;
+
+    if (!checkRequired([codeField, newPasswordField, confirmPasswordField])) {
         setMessage(resetMessage, 'Please fill in all three fields.', 'error');
         return;
     }
 
-    const newPassword = resetFields[2];
-    if (!UI.isValidPassword(newPassword.value)) {
-        newPassword.setAttribute('aria-invalid', 'true');
-        newPassword.focus();
-        setMessage(resetMessage, UI.passwordRulesText, 'error');
-        return;
+    const code = codeField.value.trim().toUpperCase();
+    if (!new RegExp(`^[A-Z]{${CODE_LENGTH}}$`).test(code)) {
+        return markInvalid(codeField, `Enter the ${CODE_LENGTH}-letter code from the email.`);
+    }
+    // Not trimmed: spaces break the password rules, so they are reported instead of removed.
+    const newPassword = newPasswordField.value;
+    if (!UI.isValidPassword(newPassword)) return markInvalid(newPasswordField, UI.passwordRulesText);
+    if (confirmPasswordField.value !== newPassword) {
+        return markInvalid(confirmPasswordField, 'The new passwords do not match.');
     }
 
-    showDialog(
-        'Update Password',
-        `Set a new password for "${resetFields[0].value.trim()}"?`,
-        sendReset,
-        null,
-        { confirmText: 'Update Password' }
-    );
-}
-
-async function sendReset() {
-    const data = {
-        username: resetFields[0].value,
-        recoveryKey: resetFields[1].value,
-        newPassword: resetFields[2].value
-    };
-
-    setMessage(resetMessage, 'Updating password...');
+    resetPending = true;
+    const restore = UI.setLoading(resetForm.querySelector('[type="submit"]'), 'Updating...');
+    setMessage(resetMessage, '');
 
     try {
         const response = await fetch(`${API_BASE}/reset-password`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
+            body: JSON.stringify({ email: resetEmail, code, newPassword })
         });
-
         const result = await response.json().catch(() => ({}));
 
         if (response.ok) {
+            restore();
+            resetPending = false;
             closeReset();
             // Back on the login form: fill in the username and put the cursor in the password field.
-            userField.value = data.username.trim();
+            userField.value = result.username || '';
             passField.value = '';
-            setMessage(loginMessage, 'Password updated. Please log in with your new password.', 'success');
-            passField.focus();
-        } else {
-            setMessage(resetMessage, result.message || 'The password could not be updated.', 'error');
+            setMessage(loginMessage, result.message || 'Password updated. Please log in with your new password.', 'success');
+            (userField.value ? passField : userField).focus();
+            return;
         }
+
+        restore();
+        const message = result.message || 'The password could not be updated.';
+        markInvalid(message === UI.passwordRulesText ? newPasswordField : codeField, message);
     } catch (err) {
+        restore();
         setMessage(resetMessage, 'Server error. Please try again.', 'error');
     }
+    resetPending = false;
 }
 
+// Keeps only letters, in capitals, so a pasted "abc de" becomes "ABCDE". The field's maxlength
+// is longer than the code so a pasted code with spaces isn't cut short before this runs.
+codeField.addEventListener('input', () => {
+    const cleaned = codeField.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, CODE_LENGTH);
+    if (cleaned !== codeField.value) codeField.value = cleaned;
+});
+
 document.getElementById('forgot-password-link').addEventListener('click', openReset);
+forgotForm.addEventListener('submit', sendCode);
 resetForm.addEventListener('submit', submitReset);
+resendButton.addEventListener('click', resendCode);
+document.getElementById('change-email').addEventListener('click', () => {
+    if (!resetPending) showEmailStep();
+});
 resetModal.querySelectorAll('[data-close-reset]').forEach(button => {
     button.addEventListener('click', requestCloseReset);
 });

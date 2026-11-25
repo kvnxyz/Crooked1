@@ -425,6 +425,14 @@ const UI = (() => {
         return PASSWORD_RULES.every(test => test(password));
     }
 
+    // An account's email, where Forgot Password sends its codes (EmailPolicy on the server).
+    const emailRulesText = 'Enter a valid email address, like name@example.com.';
+
+    function isValidEmail(email) {
+        const value = (email || '').trim();
+        return value.length <= 254 && /^[^\s@]+@[^\s@.][^\s@]*\.[^\s@]*[^\s@.]$/.test(value);
+    }
+
     function onPageReady() {
         ensureToastStack();
         document.querySelectorAll('input[type="file"][data-file-picker]').forEach(enhanceFilePicker);
@@ -485,6 +493,8 @@ const UI = (() => {
         filePickerButton,
         isValidPassword,
         passwordRulesText,
+        isValidEmail,
+        emailRulesText,
         download
     };
 })();

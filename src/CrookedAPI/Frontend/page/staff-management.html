@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="../design/dashboard.css?v=30">
     <link rel="stylesheet" href="../design/components.css?v=7">
-    <link rel="stylesheet" href="../design/staff-management.css?v=7">
+    <link rel="stylesheet" href="../design/staff-management.css?v=8">
     <link rel="icon" type="image/png" href="../assets/Favicon.jpg">
 
     <!-- Applies the saved theme before the page is drawn, so the page never flashes the wrong colours. -->
@@ -120,6 +120,11 @@
                             <input type="text" id="staffUser" autocomplete="off" required>
                         </div>
                         <div class="form-field">
+                            <label for="staffEmail">Email</label>
+                            <input type="email" id="staffEmail" autocomplete="off" autocapitalize="off" spellcheck="false"
+                                maxlength="254" placeholder="name@example.com" required>
+                        </div>
+                        <div class="form-field">
                             <label for="staffPass">Password</label>
                             <input type="password" id="staffPass" autocomplete="new-password" maxlength="64" required>
                         </div>
@@ -130,7 +135,7 @@
                 <!-- ACTIVE ACCOUNTS -->
                 <section class="card" aria-labelledby="activeStaffTitle">
                     <h2 id="activeStaffTitle" class="card-title">Active Accounts</h2>
-                    <p class="card-subtitle">Change an account's role with its dropdown. Owners can open every page; staff use the POS, dashboard, inventory and sales record.</p>
+                    <p class="card-subtitle">Change an account's role with its dropdown. Owners can open every page; staff use the POS, dashboard, inventory and sales record. Forgot Password sends its codes to each account's email.</p>
 
                     <div class="table-container">
                         <table class="transaction-table accounts-table">
@@ -138,6 +143,7 @@
                                 <tr>
                                     <th scope="col">Name</th>
                                     <th scope="col">User</th>
+                                    <th scope="col">Email</th>
                                     <th scope="col">Role</th>
                                     <th scope="col">Password</th>
                                     <th scope="col">Archive</th>
@@ -171,14 +177,45 @@
 
             </div>
 
+            <!-- ADD / CHANGE EMAIL -->
+            <div id="emailModal" class="modal" hidden
+                role="dialog" aria-modal="true" aria-labelledby="emailModalTitle" aria-describedby="emailModalNote">
+                <div class="modal-content email-modal-content">
+                    <div class="modal-header">
+                        <div>
+                            <h2 id="emailModalTitle">Change Email</h2>
+                            <p id="emailModalNote"></p>
+                        </div>
+                        <button type="button" class="btn btn-ghost btn-icon" data-close-modal aria-label="Close email form">
+                            <i class="fa-solid fa-xmark" aria-hidden="true"></i>
+                        </button>
+                    </div>
+
+                    <form id="emailForm" class="modal-form" novalidate>
+                        <div class="form-field">
+                            <label for="accountEmail">Email</label>
+                            <input type="email" id="accountEmail" autocomplete="off" autocapitalize="off" spellcheck="false"
+                                maxlength="254" placeholder="name@example.com" required>
+                        </div>
+
+                        <p id="emailFormError" class="form-error" role="alert"></p>
+
+                        <div class="modal-actions">
+                            <button type="button" class="btn btn-secondary" data-close-modal>Cancel</button>
+                            <button type="submit" class="btn btn-primary">Save Email</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
         </main>
     </div>
 
-    <script src="../javascript/ui.js?v=9"></script>
+    <script src="../javascript/ui.js?v=10"></script>
     <script src="../javascript/live.js?v=3"></script>
     <script src="../javascript/layout.js?v=10"></script>
     <script src="../javascript/account.js?v=4"></script>
-    <script src="../javascript/staff-management.js?v=9"></script>
+    <script src="../javascript/staff-management.js?v=10"></script>
 
 </body>
 </html>

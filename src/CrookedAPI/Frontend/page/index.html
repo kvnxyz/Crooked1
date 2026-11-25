@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CRKD | Login</title>
     <link href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="../design/index.css?v=6">
+    <link rel="stylesheet" href="../design/index.css?v=7">
     <link rel="stylesheet" href="../design/components.css?v=7">
     <link rel="icon" type="image/png" href="../assets/Favicon.jpg">
 
@@ -49,36 +49,59 @@
         </div>
     </main>
 
-    <!-- OWNER RECOVERY MODAL -->
+    <!-- FORGOT PASSWORD MODAL (owners and staff)
+         Step 1 (forgotForm) emails a 5-letter code; step 2 (resetForm) takes the code and a new password. -->
     <div id="reset-modal" class="modal" role="dialog" aria-modal="true"
         aria-labelledby="resetTitle" aria-describedby="resetDescription" hidden>
         <div class="modal-content">
             <div class="modal-header">
                 <div>
-                    <h2 id="resetTitle">Owner Recovery</h2>
-                    <p id="resetDescription">Enter your username and master recovery key to set a new password.</p>
+                    <h2 id="resetTitle">Forgot Password</h2>
+                    <p id="resetDescription">Enter the email on your account and we'll send you a 5-letter code.</p>
                 </div>
-                <button type="button" class="btn btn-ghost btn-icon" data-close-reset aria-label="Close owner recovery">
+                <button type="button" class="btn btn-ghost btn-icon" data-close-reset aria-label="Close forgot password">
                     <span aria-hidden="true">&times;</span>
                 </button>
             </div>
 
-            <form id="resetForm" class="modal-form" novalidate>
+            <form id="forgotForm" class="modal-form" novalidate>
                 <div class="form-field">
-                    <label for="reset-username">Owner username</label>
-                    <input type="text" id="reset-username" name="reset-username" autocomplete="username"
-                        autocapitalize="off" spellcheck="false" required>
+                    <label for="reset-email">Email</label>
+                    <input type="email" id="reset-email" name="reset-email" autocomplete="email"
+                        autocapitalize="off" spellcheck="false" maxlength="254" placeholder="name@example.com" required>
                 </div>
 
+                <p id="forgot-msg" class="form-message" role="status" aria-live="polite"></p>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn btn-secondary" data-close-reset>Cancel</button>
+                    <button type="submit" class="btn btn-primary">Send Code</button>
+                </div>
+            </form>
+
+            <form id="resetForm" class="modal-form" novalidate hidden>
                 <div class="form-field">
-                    <label for="recovery-key">Master recovery key</label>
-                    <input type="password" id="recovery-key" name="recovery-key" autocomplete="off" required>
+                    <label for="reset-code">5-letter code</label>
+                    <input type="text" id="reset-code" class="code-input" name="reset-code" autocomplete="one-time-code"
+                        autocapitalize="characters" spellcheck="false" maxlength="16" required aria-describedby="reset-code-hint">
+                    <p id="reset-code-hint" class="field-hint">Check your spam folder if the email doesn't arrive.</p>
                 </div>
 
                 <div class="form-field">
                     <label for="new-password">New password</label>
                     <input type="password" id="new-password" name="new-password" autocomplete="new-password"
                         maxlength="64" required>
+                </div>
+
+                <div class="form-field">
+                    <label for="confirm-password">Confirm new password</label>
+                    <input type="password" id="confirm-password" name="confirm-password" autocomplete="new-password"
+                        maxlength="64" required>
+                </div>
+
+                <div class="reset-links">
+                    <button type="button" id="resend-code" class="link-button">Send a new code</button>
+                    <button type="button" id="change-email" class="link-button">Use a different email</button>
                 </div>
 
                 <p id="reset-msg" class="form-message" role="status" aria-live="polite"></p>
@@ -91,7 +114,7 @@
         </div>
     </div>
 
-    <script src="../javascript/ui.js?v=9"></script>
-    <script src="../javascript/index.js?v=5"></script>
+    <script src="../javascript/ui.js?v=10"></script>
+    <script src="../javascript/index.js?v=6"></script>
 </body>
 </html>

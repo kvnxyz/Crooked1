@@ -24,7 +24,8 @@ src/
                                 # ActivityLog (writes activity_logs entries), Money (peso formatting),
                                 # TransactionExcel (xlsx export), ShopClock (UTC <-> PH time),
                                 # LiveUpdates + [LiveUpdate] (Supabase Realtime broadcasts),
-                                # ProductImages (restores committed photos into the Railway volume)
+                                # ProductImages (restores committed photos into the Railway volume),
+                                # EmailSender (sends email), PasswordResetCodes (Forgot Password codes)
     Frontend/
       page/                     # one .html per page
       design/                   # one .css per page, plus dashboard.css (admin base) and components.css (shared components)
@@ -34,13 +35,14 @@ src/
 ```
 
 Pages:
-- `index` is the login page.
+- `index` is the login page, with Forgot Password (see Accounts and roles).
 - `PointofSale` is the cashier view.
 - `receipt` is the printable receipt. The POS leaves the sale in localStorage and opens the page in a small window; `receipt.js` reads and clears the sale, fills in the page and prints it.
 - The admin pages share a sidebar: `dashboard`, `products`, `inventory`, `transaction-logs` (shown as Sales Record), `activity-logs` (shown as Audit Trails), `exchange`, `discounts`, `staff-management` (shown as Accounts), and `forecasting`. Pages marked `data-owner-only` are restricted to the owner role.
 - Each size and color of a product is its own row in `products`. The `products` page and the POS show one card per product (same name and category). On the `products` page, the card shows the count of sizes, colors and units in stock, and its Manage window lists each size and color with Edit, Archive and "Add size or color". The `inventory` page keeps one row per size and color, with a "Sort by" choice: in stock first (the default), out of stock first, or low stock first.
   - The name, category, price and photo are shared by every size and color of a product. Change them with "Edit details" in the Manage window (`PUT /api/Products/update-details/{id}`, which updates every active row with that row's name and category). A size's own Edit changes only its size, color and stock (`update-product/{id}`, sending the shared details unchanged).
   - Add Product takes the shared details and a list of size-and-color rows (`<template id="variantRowTemplate">`), and "Add size or color" uses the same form with the details left out. Both send `POST /api/Products/add-variants`, which adds every row in one transaction. It refuses a size and color the product already has, active or archived (ignoring case), and gives added sizes the product's existing photo (`PhotoFromId`).
+  - Product photos must be JPG, PNG or WebP. `ProductRules.PhotoProblem` checks the file name and its first bytes on every endpoint that takes a photo, and `products.js` refuses any other file as soon as it is picked.
   - The card's Archive archives every size and color with one request and one log entry (`POST /api/Products/archive-group/{id}`). The rules and limits are in `ProductRules` (api/Models/ProductForms.cs).
 - `transaction-logs` (shown as Sales Record, the sale records) and `activity-logs` (shown as Audit Trails, who did what) each have a one-line `.page-description` under the heading so they're easy to tell apart. The style is in `dashboard.css`, and any page can use it.
 
@@ -53,7 +55,7 @@ Pages:
   - Markup a script repeats goes in a `<template>` in the page's HTML, as in `products.html` and `receipt.html`. Small pieces can be built with `UI.el` and `UI.cell`.
 - A new page needs three files that share its name: `page/<name>.html`, `design/<name>.css`, and `javascript/<name>.js`, using kebab-case for new names. Add its link to the sidebar on every admin page.
 - Reuse the shared pieces instead of copying them:
-  - `ui.js` (the `UI` namespace) with `components.css`: skeleton loaders (`tableSkeleton`, `cardSkeletons`, `textSkeleton`), table empty/error states (`tableMessage`), `fillTable`, `labelCells`, badges (`statusBadge`, and `stockBadge` for a product's `stock_status`), `pagination`, toasts, `setLoading` for buttons, `fetchJson`, `lastDrawn` (skips redrawing an unchanged refresh), `download`, `detailPair`, and formatters (`formatPeso`, `variantLabel`, `variantName`, and `compareSizes` for sorting sizes). It also turns `<input type="file" data-file-picker="Label">` into a button-only file picker. Every page loads it, including the login page and the POS.
+  - `ui.js` (the `UI` namespace) with `components.css`: skeleton loaders (`tableSkeleton`, `cardSkeletons`, `textSkeleton`), table empty/error states (`tableMessage`), `fillTable`, `labelCells`, badges (`statusBadge`, and `stockBadge` for a product's `stock_status`), `pagination`, toasts, `setLoading` for buttons, `fetchJson`, `lastDrawn` (skips redrawing an unchanged refresh), `download`, `detailPair`, form checks (`isValidPassword`, `isValidEmail` and their messages), and formatters (`formatPeso`, `variantLabel`, `variantName`, and `compareSizes` for sorting sizes). It also turns `<input type="file" data-file-picker="Label">` into a button-only file picker. Every page loads it, including the login page and the POS.
   - The confirmation dialog (`showDialog`) is styled once in `components.css`: blurred backdrop, centred text and buttons.
   - `live.js` (the `Live` namespace): `Live.on(topics, reload)` reloads a view when the server broadcasts that those topics changed. Loaders take `{ quiet: true }` for these refreshes so they skip skeletons and keep the current rows until new ones arrive. `Live.on(topics, reload, { poll: true })` also reloads every 10 seconds while live updates are off or disconnected (always the case on a local `dotnet run`, which has no Supabase settings). Use it only for views that are safe to redraw at any time: the Audit Trails and Sales Record lists use it. Those loaders skip redrawing when a quiet refresh brings nothing new, using `UI.lastDrawn()` (`if (!drawn.changed(data) && quiet) return;`, and `drawn.forget()` after an error).
   - `layout.js` provides `apiBase`, dialogs (`showDialog`), `showToast`, modals with focus trapping, the navigation drawer, the profile card, logout, the owner-only redirect, and forecast notifications.
@@ -69,7 +71,7 @@ Pages:
 - Call the API with same-origin paths (`/api/...` or `${apiBase}/api/...`). Never hardcode `localhost:5055`, because it breaks the deployed site.
 - Bump the `?v=` number on a script or stylesheet link when you change that file, so browsers don't keep the old copy.
 - New backend features go in a controller for their domain under `api/Controllers`, with models in `api/Models`. Schema changes go in `Database/schema.sql` as idempotent SQL (`IF NOT EXISTS`).
-- Login uses ASP.NET Core cookie authentication: `POST /api/Auth/login` sets the HttpOnly `crkd_session` cookie (with the user's username, role and full name), and `POST /api/Auth/logout` deletes it. Program.cs makes every API endpoint require a signed-in user. Add `[Authorize(Roles = UserRoles.Owner)]` to endpoints that only owner pages use, and `[AllowAnonymous]` only to endpoints the login page needs (login, logout, owner recovery). The `userRole` in localStorage only decides what the UI shows; the server never trusts it.
+- Login uses ASP.NET Core cookie authentication: `POST /api/Auth/login` sets the HttpOnly `crkd_session` cookie (with the user's username, role and full name), and `POST /api/Auth/logout` deletes it. Program.cs makes every API endpoint require a signed-in user. Add `[Authorize(Roles = UserRoles.Owner)]` to endpoints that only owner pages use, and `[AllowAnonymous]` only to endpoints the login page needs (login, logout, `forgot-password` and `reset-password`). The `userRole` in localStorage only decides what the UI shows; the server never trusts it.
 - `AccountSessions.ValidateAsync` (Program.cs, `OnValidatePrincipal`) ends a session when its account has been archived or given a different role since login, so the API answers 401 and session.js sends that browser to the login page. Roles are cached for 30 seconds; call `AccountSessions.Forget(username)` after changing an account's role or archiving it.
 - Every endpoint that changes data writes an activity log entry with `ActivityLog.WriteAsync` (or `Write`), passing the open database transaction, the signed-in person's name (`SessionClaims.FullNameOf(User)`, never a name the browser sends) and an `ActivityTypes` value, and adds `LiveTopics.Activity` to its `[LiveUpdate]`.
 - Mark every endpoint that changes data with `[LiveUpdate(LiveTopics.X, ...)]` so open pages refresh, and register matching `Live.on([...])` reloads on the pages that show that data.
@@ -100,8 +102,17 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 
 ## Accounts and roles
 
-- The Accounts page (`staff-management`) lists every account from `GET /api/Auth/get-staff` (owners first, `isSelf` marks the signed-in one). Active accounts have Role (an Owner/Staff dropdown, `POST /api/Auth/role/{id}`), Password (`staff-password/{id}`) and Archive (`toggle-archive/{id}`) columns.
+- The Accounts page (`staff-management`) lists every account from `GET /api/Auth/get-staff` (owners first, `isSelf` marks the signed-in one). Active accounts have Email (Add Email / Change, `POST /api/Auth/email/{id}`), Role (an Owner/Staff dropdown, `POST /api/Auth/role/{id}`), Password (`staff-password/{id}`) and Archive (`toggle-archive/{id}`) columns.
+- Every account has an email (`users.email`), where Forgot Password sends its codes. Create Staff Account requires one (`register-staff`). Emails are saved in lower case, must pass `EmailPolicy` (api/Models/User.cs) and are unique ignoring case, archived accounts included. Accounts made before emails were required show "No email" until the owner adds one, and can't use Forgot Password until then.
 - The signed-in owner can't change their own role or archive their own account, so there is always an active owner. Their own Password button opens the Change Password form that asks for the current password.
+
+### Forgot Password
+
+- Owners and staff both use it from the login page, in two steps: `POST /api/Auth/forgot-password` emails a code to the active account with that email, then `POST /api/Auth/reset-password` takes the email, the code and the new password, and the login form fills in the account's username.
+- A code is 5 capital letters (typed in any case) and expires 5 minutes after it is sent. `PasswordResetCodes` (api/Services) keeps at most one per account in `password_reset_codes`, stored as a hash. A new code can be sent once a minute (index.js counts the same minute down on "Send a new code"); asking sooner keeps the current code. After 5 wrong tries the code stops working. Changing an account's email deletes its code.
+- `forgot-password` gives the same answer whether or not an account uses the email, so it can't be used to find out which emails have accounts. A reset writes an Account activity log entry under the account's name.
+- `EmailSender` sends the email. Set `EMAIL_FROM` (and optionally `EMAIL_FROM_NAME`) on the server, plus either `BREVO_API_KEY` (Brevo's HTTPS API) or `SMTP_HOST`, `SMTP_PORT` (default 587, STARTTLS), `SMTP_USERNAME` and `SMTP_PASSWORD` (for example smtp.gmail.com with a Gmail app password). Railway only allows outgoing SMTP on its Pro plan, so use Brevo on other plans. Without these, a local `dotnet run` (Development) writes each email, code included, to the console, and the deployed site answers that password reset emails aren't set up.
+- The old owner recovery key is gone.
 
 ## Discounts
 

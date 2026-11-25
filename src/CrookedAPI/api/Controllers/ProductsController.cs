@@ -235,6 +235,9 @@ public IActionResult GetProducts()
             return BadRequest(new { message = "Product name is required." });
         }
 
+        var photoProblem = ProductRules.PhotoProblem(dto.ImageFile);
+        if (photoProblem != null) return BadRequest(new { message = photoProblem });
+
         try
         {
             using (var connection = new NpgsqlConnection(_connectionString))
@@ -364,7 +367,7 @@ public IActionResult GetProducts()
     {
         var name = ProductRules.Clean(form.ProductName);
         var category = ProductRules.Clean(form.Category);
-        var problem = ProductRules.DetailsProblem(name, category, form.Price);
+        var problem = ProductRules.DetailsProblem(name, category, form.Price) ?? ProductRules.PhotoProblem(form.ImageFile);
         if (problem != null) return BadRequest(new { message = problem });
 
         try
@@ -440,7 +443,9 @@ public IActionResult GetProducts()
     {
         var name = ProductRules.Clean(form.ProductName);
         var category = ProductRules.Clean(form.Category);
-        var problem = ProductRules.DetailsProblem(name, category, form.Price) ?? ProductRules.VariantsProblem(form.Variants);
+        var problem = ProductRules.DetailsProblem(name, category, form.Price)
+            ?? ProductRules.VariantsProblem(form.Variants)
+            ?? ProductRules.PhotoProblem(form.ImageFile);
         if (problem != null) return BadRequest(new { message = problem });
 
         var variants = form.Variants

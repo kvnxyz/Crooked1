@@ -18,22 +18,55 @@ namespace Crooked.Controllers
         // Tinatawag nya yung connection string mula sa DatabaseConfig.cs
         private readonly string _connectionString = DatabaseConfig.ConnectionString;
 
+        private readonly EmailSender _email;
+
+        public AuthController(EmailSender email)
+        {
+            _email = email;
+        }
+
         // Same text as UI.passwordRulesText in ui.js, which the forms show before sending.
         private const string WeakPasswordMessage =
             "Password must be 8 to 64 characters, with an uppercase letter, a lowercase letter, a number and a symbol, and no spaces.";
 
         private const string FullNameClaim = SessionClaims.FullName;
 
-        // An account on the Accounts page. Role is in lower case, like the session's role claim.
-        private sealed record Account(string Username, string FullName, string Role);
+        // An account on the Accounts page. Role is in lower case, like the session's role claim;
+        // Email is empty when the account has none yet.
+        private sealed record Account(int Id, string Username, string FullName, string Role, string Email);
+
+        private const string AccountColumns =
+            "id, username, COALESCE(full_name, username), COALESCE(lower(role), ''), COALESCE(email, '')";
+
+        private static Account ReadAccount(NpgsqlDataReader reader) =>
+            new(Convert.ToInt32(reader.GetValue(0)), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4));
 
         private static Account? FindAccount(NpgsqlConnection connection, int id)
         {
-            using var command = new NpgsqlCommand(
-                "SELECT username, COALESCE(full_name, username), COALESCE(lower(role), '') FROM users WHERE id = @id", connection);
+            using var command = new NpgsqlCommand($"SELECT {AccountColumns} FROM users WHERE id = @id", connection);
             command.Parameters.AddWithValue("@id", id);
             using var reader = command.ExecuteReader();
-            return reader.Read() ? new Account(reader.GetString(0), reader.GetString(1), reader.GetString(2)) : null;
+            return reader.Read() ? ReadAccount(reader) : null;
+        }
+
+        // The active account that uses this email (already normalised by EmailPolicy), if any.
+        private static async Task<Account?> FindActiveAccountByEmailAsync(NpgsqlConnection connection, string email)
+        {
+            await using var command = new NpgsqlCommand(
+                $"SELECT {AccountColumns} FROM users WHERE lower(email) = @email AND is_active = TRUE LIMIT 1", connection);
+            command.Parameters.AddWithValue("@email", email);
+            await using var reader = await command.ExecuteReaderAsync();
+            return await reader.ReadAsync() ? ReadAccount(reader) : null;
+        }
+
+        // Whether an account other than exceptId already uses this email, archived accounts included.
+        private static bool EmailTaken(NpgsqlConnection connection, string email, int? exceptId = null)
+        {
+            using var command = new NpgsqlCommand(
+                "SELECT EXISTS (SELECT 1 FROM users WHERE lower(email) = @email AND id <> @except)", connection);
+            command.Parameters.AddWithValue("@email", email);
+            command.Parameters.AddWithValue("@except", exceptId ?? -1);
+            return command.ExecuteScalar() is true;
         }
 
         private bool IsSignedInAs(Account account) => account.Username == User.Identity?.Name;
@@ -208,7 +241,7 @@ namespace Crooked.Controllers
             using (var connection = new NpgsqlConnection(_connectionString))
             {
                 connection.Open();
-                var sql = @"SELECT id, full_name, username, lower(role) AS role, is_active FROM users
+                var sql = @"SELECT id, full_name, username, COALESCE(email, '') AS email, lower(role) AS role, is_active FROM users
                             ORDER BY lower(role) = 'owner' DESC, lower(full_name), id";
                 using (var cmd = new NpgsqlCommand(sql, connection))
                 using (var reader = cmd.ExecuteReader())
@@ -219,6 +252,7 @@ namespace Crooked.Controllers
                             id = reader["id"],
                             fullName = reader["full_name"],
                             username = reader["username"],
+                            email = reader["email"],
                             role = reader["role"],
                             isActive = Convert.ToBoolean(reader["is_active"]),
                             isSelf = reader["username"] as string == User.Identity?.Name
@@ -281,30 +315,129 @@ namespace Crooked.Controllers
             }
         }
 
+        // A new staff account. The email is required, because Forgot Password sends its codes there,
+        // and no other account may use it.
         [Authorize(Roles = UserRoles.Owner)]
         [HttpPost("register-staff")]
         [LiveUpdate(LiveTopics.Staff, LiveTopics.Activity)]
         public IActionResult RegisterStaff([FromBody] User request)
         {
+            var fullName = request.FullName?.Trim() ?? string.Empty;
+            var username = request.Username?.Trim() ?? string.Empty;
+            if (fullName.Length == 0 || username.Length == 0 || string.IsNullOrWhiteSpace(request.Email))
+            {
+                return BadRequest(new { message = "Fill in the full name, username, email and password." });
+            }
+
+            var email = EmailPolicy.Normalize(request.Email);
+            if (email == null)
+            {
+                return BadRequest(new { message = EmailPolicy.InvalidMessage });
+            }
+
             if (!PasswordPolicy.IsValid(request.Password))
             {
                 return BadRequest(new { message = WeakPasswordMessage });
             }
 
-            using (var connection = new NpgsqlConnection(_connectionString))
+            try
             {
-                connection.Open();
-                var sql = "INSERT INTO users (username, password, role, full_name, is_active) VALUES (@user, @pass, 'staff', @name, true)";
-                using (var cmd = new NpgsqlCommand(sql, connection))
+                using (var connection = new NpgsqlConnection(_connectionString))
                 {
-                    cmd.Parameters.AddWithValue("@user", request.Username);
-                    cmd.Parameters.AddWithValue("@pass", request.Password);
-                    cmd.Parameters.AddWithValue("@name", request.FullName);
-                    cmd.ExecuteNonQuery();
+                    connection.Open();
+
+                    using (var check = new NpgsqlCommand("SELECT EXISTS (SELECT 1 FROM users WHERE username = @user)", connection))
+                    {
+                        check.Parameters.AddWithValue("@user", username);
+                        if (check.ExecuteScalar() is true)
+                        {
+                            return BadRequest(new { message = $"The username \"{username}\" is already taken." });
+                        }
+                    }
+                    if (EmailTaken(connection, email))
+                    {
+                        return BadRequest(new { message = $"Another account already uses {email}." });
+                    }
+
+                    var sql = "INSERT INTO users (username, password, role, full_name, email, is_active) VALUES (@user, @pass, 'staff', @name, @email, true)";
+                    using (var cmd = new NpgsqlCommand(sql, connection))
+                    {
+                        cmd.Parameters.AddWithValue("@user", username);
+                        cmd.Parameters.AddWithValue("@pass", request.Password);
+                        cmd.Parameters.AddWithValue("@name", fullName);
+                        cmd.Parameters.AddWithValue("@email", email);
+                        cmd.ExecuteNonQuery();
+                    }
+                    LogAccountChange(connection, $"Created staff account: {fullName} ({username})");
                 }
-                LogAccountChange(connection, $"Created staff account: {request.FullName} ({request.Username})");
+                return Ok(new { message = "Staff account created successfully." });
             }
-            return Ok();
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+            {
+                // Another owner created the same username or email a moment ago.
+                return BadRequest(new { message = "That username or email is already used by another account." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        // Sets or changes an account's email, where Forgot Password sends its codes. A code sent
+        // to the old email stops working.
+        [Authorize(Roles = UserRoles.Owner)]
+        [HttpPost("email/{id}")]
+        [LiveUpdate(LiveTopics.Staff, LiveTopics.Activity)]
+        public IActionResult SetEmail(int id, [FromBody] SetEmailRequest request)
+        {
+            var email = EmailPolicy.Normalize(request.Email);
+            if (email == null)
+            {
+                return BadRequest(new { message = EmailPolicy.InvalidMessage });
+            }
+
+            try
+            {
+                using (var connection = new NpgsqlConnection(_connectionString))
+                {
+                    connection.Open();
+
+                    var account = FindAccount(connection, id);
+                    if (account == null)
+                    {
+                        return NotFound(new { message = "Account not found." });
+                    }
+                    if (string.Equals(account.Email, email, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Ok(new { message = $"\"{account.FullName}\" already uses {email}." });
+                    }
+                    if (EmailTaken(connection, email, id))
+                    {
+                        return BadRequest(new { message = $"Another account already uses {email}." });
+                    }
+
+                    using (var cmd = new NpgsqlCommand("UPDATE users SET email = @email WHERE id = @id", connection))
+                    {
+                        cmd.Parameters.AddWithValue("@email", email);
+                        cmd.Parameters.AddWithValue("@id", id);
+                        cmd.ExecuteNonQuery();
+                    }
+                    PasswordResetCodes.Delete(connection, id);
+
+                    LogAccountChange(connection, account.Email.Length == 0
+                        ? $"Added email: {account.FullName}"
+                        : $"Changed email: {account.FullName}");
+                    return Ok(new { message = $"The email for \"{account.FullName}\" is now {email}." });
+                }
+            }
+            catch (PostgresException ex) when (ex.SqlState == PostgresErrorCodes.UniqueViolation)
+            {
+                return BadRequest(new { message = $"Another account already uses {email}." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
         }
 
         // Any signed-in user (owner or staff) changing their own password; the current one must match.
@@ -409,50 +542,143 @@ namespace Crooked.Controllers
             }
         }
 
-        // Owner recovery from the login page, so no session is needed.
+        /* =========================
+           FORGOT PASSWORD (login page, so no session is needed)
+           Step 1 emails a 5-letter code to the account; step 2 checks it and sets the new password.
+           Owners and staff both use it. Codes expire after 5 minutes (PasswordResetCodes).
+        ========================= */
+
+        // Step 1. The answer is the same whether or not an active account uses the email, so the
+        // form can't be used to find out which emails have accounts.
+        [AllowAnonymous]
+        [HttpPost("forgot-password")]
+        public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
+        {
+            var email = EmailPolicy.Normalize(request.Email);
+            if (email == null)
+            {
+                return BadRequest(new { message = EmailPolicy.InvalidMessage });
+            }
+            if (!_email.Enabled)
+            {
+                return StatusCode(503, new { message = "Password reset emails aren't set up on the server yet. Ask the owner to reset your password." });
+            }
+
+            var sent = new
+            {
+                message = $"If an active account uses {email}, a 5-letter code is on its way. It expires in {PasswordResetCodes.ValidMinutes} minutes.",
+                resendSeconds = PasswordResetCodes.ResendSeconds
+            };
+
+            try
+            {
+                await using var connection = new NpgsqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var account = await FindActiveAccountByEmailAsync(connection, email);
+                if (account == null)
+                {
+                    return Ok(sent);
+                }
+
+                // Null when a code was sent less than a minute ago; that code still works.
+                var code = PasswordResetCodes.Create(connection, account.Id);
+                if (code == null)
+                {
+                    return Ok(sent);
+                }
+
+                var (subject, text, html) = PasswordResetCodes.Email(account.FullName, account.Username, code);
+                try
+                {
+                    await _email.SendAsync(email, subject, text, html);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Forgot Password Email Error: {ex.Message}");
+                    // So the person can ask again straight away.
+                    PasswordResetCodes.Delete(connection, account.Id);
+                    return StatusCode(502, new { message = "The code couldn't be emailed. Please try again in a few minutes." });
+                }
+
+                return Ok(sent);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
+        }
+
+        // Step 2. Wrong tries are counted even though the password isn't changed; after 5 the code
+        // stops working.
         [AllowAnonymous]
         [HttpPost("reset-password")]
         [LiveUpdate(LiveTopics.Activity)]
-public IActionResult ResetPassword([FromBody] ResetRequest request)
-{
-
-    string masterRecoveryKey = "CRKD_OWNER_2026"; 
-
-    if (request.RecoveryKey != masterRecoveryKey)
-    {
-        return BadRequest(new { message = "Invalid Recovery Key!" });
-    }
-
-    if (!PasswordPolicy.IsValid(request.NewPassword))
-    {
-        return BadRequest(new { message = WeakPasswordMessage });
-    }
-
-    try
-    {
-        using (var connection = new NpgsqlConnection(_connectionString))
+        public async Task<IActionResult> ResetPassword([FromBody] ResetRequest request)
         {
-            connection.Open();
-
-            var sql = "UPDATE users SET password = @newPass WHERE username = @user AND role = 'owner' RETURNING COALESCE(full_name, username)";
-            using (var cmd = new NpgsqlCommand(sql, connection))
+            var email = EmailPolicy.Normalize(request.Email);
+            if (email == null)
             {
-                cmd.Parameters.AddWithValue("@newPass", request.NewPassword);
-                cmd.Parameters.AddWithValue("@user", request.Username);
+                return BadRequest(new { message = EmailPolicy.InvalidMessage });
+            }
 
-                if (cmd.ExecuteScalar() is not string ownerName)
+            var code = PasswordResetCodes.Normalize(request.Code);
+            if (code == null)
+            {
+                return BadRequest(new { message = $"Enter the {PasswordResetCodes.Length}-letter code from the email." });
+            }
+
+            if (!PasswordPolicy.IsValid(request.NewPassword))
+            {
+                return BadRequest(new { message = WeakPasswordMessage });
+            }
+
+            try
+            {
+                await using var connection = new NpgsqlConnection(_connectionString);
+                await connection.OpenAsync();
+                await using var transaction = await connection.BeginTransactionAsync();
+
+                var account = await FindActiveAccountByEmailAsync(connection, email);
+                var (result, triesLeft) = account == null
+                    ? (PasswordResetCodes.Result.Missing, 0)
+                    : await PasswordResetCodes.UseAsync(connection, transaction, account.Id, code);
+
+                if (account == null || result != PasswordResetCodes.Result.Valid)
                 {
-                    return BadRequest(new { message = "Owner username not found." });
+                    // Keeps the counted try, or the deleted expired code.
+                    await transaction.CommitAsync();
+                    return BadRequest(new
+                    {
+                        message = result switch
+                        {
+                            PasswordResetCodes.Result.Expired => "That code has expired. Send a new code and try again.",
+                            PasswordResetCodes.Result.TooManyTries => "Too many incorrect tries. Send a new code and try again.",
+                            PasswordResetCodes.Result.Wrong =>
+                                $"That code is incorrect. {triesLeft} {(triesLeft == 1 ? "try" : "tries")} left.",
+                            _ => "That code is incorrect or has expired. Send a new code and try again."
+                        }
+                    });
                 }
 
-                ActivityLog.Write(connection, ownerName, ActivityTypes.Account, "Reset the owner password with the recovery key");
-                return Ok(new { message = "Owner password reset successfully!" });
-            }
-        }
-    }
-                catch (Exception ex)
+                await using (var update = new NpgsqlCommand(
+                    "UPDATE users SET password = @newPass WHERE id = @id", connection, transaction))
                 {
-                    return StatusCode(500, new { message = ex.Message });
+                    update.Parameters.AddWithValue("@newPass", request.NewPassword);
+                    update.Parameters.AddWithValue("@id", account.Id);
+                    await update.ExecuteNonQueryAsync();
+                }
+
+                await ActivityLog.WriteAsync(connection, transaction, account.FullName, ActivityTypes.Account,
+                    "Reset their password with an email code");
+                await transaction.CommitAsync();
+
+                // The login form fills in the username, which the person may have forgotten too.
+                return Ok(new { message = "Password updated. Please log in with your new password.", username = account.Username });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
             }
         }
     }

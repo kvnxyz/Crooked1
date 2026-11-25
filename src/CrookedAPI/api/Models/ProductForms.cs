@@ -57,6 +57,36 @@ namespace Crooked.Models
             return null;
         }
 
+        // Product photos must be JPG, PNG or WebP. products.js checks the same file names.
+        public const string PhotoTypesText = "JPG, PNG or WebP";
+        private static readonly string[] PhotoExtensions = { ".jpg", ".jpeg", ".png", ".webp" };
+
+        // Why an uploaded photo can't be saved, or null when it can (or when there is none).
+        // Checks the file's name and its first bytes, so a renamed file of another kind is refused too.
+        public static string? PhotoProblem(IFormFile? file)
+        {
+            if (file == null || file.Length == 0) return null;
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!PhotoExtensions.Contains(extension) || !LooksLikePhoto(file))
+                return $"Product photos must be {PhotoTypesText} images.";
+            return null;
+        }
+
+        private static bool LooksLikePhoto(IFormFile file)
+        {
+            var header = new byte[12];
+            using (var stream = file.OpenReadStream())
+            {
+                if (stream.ReadAtLeast(header, header.Length, throwOnEndOfStream: false) < header.Length) return false;
+            }
+
+            var isJpeg = header[0] == 0xFF && header[1] == 0xD8 && header[2] == 0xFF;
+            var isPng = header.AsSpan(0, 8).SequenceEqual(new byte[] { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A });
+            var isWebp = header.AsSpan(0, 4).SequenceEqual("RIFF"u8) && header.AsSpan(8, 4).SequenceEqual("WEBP"u8);
+            return isJpeg || isPng || isWebp;
+        }
+
         // Why the sizes and colors can't be added, or null when they can.
         public static string? VariantsProblem(IReadOnlyList<VariantInput>? variants)
         {

@@ -55,6 +55,8 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<LiveUpdates>();
+// Forgot Password codes; the EMAIL_FROM, BREVO_API_KEY and SMTP_* variables are described in EmailSender.
+builder.Services.AddSingleton<EmailSender>();
 
 // Register threshold forecast options and service
 builder.Services.Configure<ThresholdForecastOptions>(builder.Configuration.GetSection("ThresholdForecast"));
@@ -102,8 +104,8 @@ app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvid
 app.UseAuthentication();
 app.UseAuthorization();
 
-// Every API endpoint needs a signed-in user unless it is marked [AllowAnonymous] (login and owner
-// recovery). Owner-only endpoints add [Authorize(Roles = UserRoles.Owner)]. The static pages stay
+// Every API endpoint needs a signed-in user unless it is marked [AllowAnonymous] (login, logout
+// and Forgot Password). Owner-only endpoints add [Authorize(Roles = UserRoles.Owner)]. The static pages stay
 // public; session.js sends signed-out visitors to the login page.
 app.MapControllers().RequireAuthorization();
 app.Run();
