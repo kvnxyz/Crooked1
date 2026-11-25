@@ -248,7 +248,7 @@ namespace Crooked.Controllers
             return true;
         }
 
-        // One page of sales for the Audit Logs and Sales History, with search and filters applied.
+        // One page of sales for the Sales Record, with search and filters applied.
         // totalRevenue covers every matching sale, not just this page. Only owners get it (null for
         // staff), as revenue is owner-only elsewhere (today-revenue).
         [HttpGet("search")]

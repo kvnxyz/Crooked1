@@ -196,7 +196,7 @@ document.addEventListener('keydown', (event) => {
 /* =========================
    PAGE ACCESS
 ========================= */
-// Pages marked data-owner-only (Products, Activity Logs, Exchanges, Sales History, Discounts,
+// Pages marked data-owner-only (Products, Audit Trails, Exchanges, Discounts,
 // Accounts, Forecasting) send everyone else back to the dashboard.
 if (document.body.hasAttribute('data-owner-only')
     && localStorage.getItem('userRole')?.toLowerCase() !== 'owner') {
@@ -470,7 +470,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Role-based UI hiding
         if (role && !isOwner) {
-            ['nav-products', 'nav-activity-logs', 'nav-exchange', 'nav-forecasting', 'nav-sales-history', 'nav-discounts',
+            ['nav-products', 'nav-activity-logs', 'nav-exchange', 'nav-forecasting', 'nav-discounts',
                 'nav-staff-management']
                 .forEach(id => document.getElementById(id)?.remove());
         }

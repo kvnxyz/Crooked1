@@ -1,11 +1,12 @@
 /* =========================
    SALES RECORD
    A read-only record of sales: search, filters, pages of 10,
-   Excel export and a details view. Exchanges are made on the
+   the total revenue of the matching sales (owners only), Excel
+   export and a details view. Exchanges are made on the
    Exchanges page.
 ========================= */
 const PAGE_SIZE = 10;
-const COLUMN_COUNT = 6;
+const COLUMN_COUNT = 7;
 
 const filters = { search: '', status: '', payment: '', from: '', to: '' };
 let currentPage = 1;
@@ -57,9 +58,7 @@ async function loadTransactions(page = currentPage, { quiet = false } = {}) {
         currentPage = data.page;
         totalTransactions = data.totalItems;
         renderTransactions(data.items, { fade: !quiet });
-        transactionSummary.textContent = hasActiveFilters()
-            ? `${data.totalItems.toLocaleString('en-PH')} transaction${data.totalItems === 1 ? '' : 's'} match your search and filters.`
-            : `${data.totalItems.toLocaleString('en-PH')} transaction${data.totalItems === 1 ? '' : 's'} in total.`;
+        renderSummary(data);
         UI.pagination(transactionPager, {
             page: data.page,
             totalPages: data.totalPages,
@@ -88,6 +87,24 @@ async function loadTransactions(page = currentPage, { quiet = false } = {}) {
             onAction: () => loadTransactions(currentPage)
         });
     }
+}
+
+// "85 transactions in total • Total Revenue: ₱42,500.00". The revenue covers every matching sale
+// (completed and exchanged ones), not just this page, so it follows the search and filters.
+// The server only sends it to owners; staff see the count alone.
+function renderSummary({ totalItems, totalRevenue }) {
+    const count = `${totalItems.toLocaleString('en-PH')} transaction${totalItems === 1 ? '' : 's'}`;
+    const countText = hasActiveFilters()
+        ? `${count} ${totalItems === 1 ? 'matches' : 'match'} your search and filters`
+        : `${count} in total`;
+    if (totalRevenue === null || totalRevenue === undefined) {
+        transactionSummary.textContent = `${countText}.`;
+        return;
+    }
+    transactionSummary.replaceChildren(
+        `${countText} • Total Revenue: `,
+        UI.el('strong', 'table-summary-value', UI.formatPeso(totalRevenue))
+    );
 }
 
 function goToPage(page) {
@@ -137,6 +154,7 @@ function renderTransactions(transactions, { fade = true } = {}) {
             UI.cell(UI.formatPeso(transaction.totalAmount), 'col-amount'),
             UI.cell(transaction.referenceId || '—', 'col-muted'),
             UI.cell(paymentLabel(transaction.paymentMethod)),
+            UI.cell(transaction.soldBy || 'Unknown', 'col-muted'),
             UI.cell(UI.statusBadge(transaction.status)),
             UI.cell(viewButton, 'col-action')
         );

@@ -1,8 +1,15 @@
-/* ── AUDIT LOGS ── */
+/* ── SALES RECORD ── */
 
 /* Pages hold at most 10 rows, so the table shows them all instead of scrolling inside the panel. */
 .data-table-panel .transaction-table-scroll {
     max-height: none;
+}
+
+/* The total revenue in the summary line under the filters. */
+.table-summary-value {
+    color: var(--color-text);
+    font-weight: 600;
+    white-space: nowrap;
 }
 
 .transaction-search-field {
