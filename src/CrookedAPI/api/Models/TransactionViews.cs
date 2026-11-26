@@ -16,8 +16,14 @@ namespace Crooked.Models
         decimal DiscountAmount,
         // Set only for a manual discount (DiscountCode is then null).
         int? ManualDiscountPercent,
+        // Set only for a voided sale (VoidPolicy): when (Philippine time), by whom and why.
+        string? VoidedAt,
+        string? VoidedBy,
+        string? VoidReason,
         [property: JsonIgnore] string StoredStatus,
-        [property: JsonIgnore] DateTime StoredDateTime);
+        [property: JsonIgnore] DateTime StoredDateTime,
+        // When the server saved the sale; null for sales saved before that was recorded.
+        [property: JsonIgnore] DateTime? StoredCreatedAt);
 
     public sealed record TransactionItemView(
         long TransactionItemId,

@@ -46,15 +46,7 @@
     width: min(100%, 460px);
 }
 
-.form-error {
-    margin: 0;
-    color: var(--color-danger);
-    font-size: var(--font-size-sm);
-}
-
-.form-error:empty {
-    display: none;
-}
+/* The email form's error line uses .form-error from components.css. */
 
 .archive-card {
     border-color: var(--color-danger-border);
@@ -90,7 +82,7 @@
         width: 100%;
     }
 
-    /* One value per line, so the Change Password button fits the narrowest phones. */
+    /* One value per line, so the buttons fit the narrowest phones. */
     .accounts-table tbody tr {
         grid-template-columns: minmax(0, 1fr);
     }

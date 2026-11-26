@@ -48,6 +48,15 @@
     width: min(100%, 780px);
 }
 
+/* Void Sale sits apart on the left of Exchange an item and Close, so it isn't clicked by mistake. */
+.details-modal .modal-actions {
+    flex-wrap: wrap;
+}
+
+.details-void-button {
+    margin-right: auto;
+}
+
 .details-body {
     display: grid;
     gap: 24px;

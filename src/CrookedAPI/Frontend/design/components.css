@@ -258,6 +258,48 @@ html.session-ended {
     display: none;
 }
 
+/* An error line inside a modal form (the Accounts page's email form, the Void Sale form). */
+.form-error {
+    margin: 0;
+    color: var(--color-danger);
+    font-size: var(--font-size-sm, 13px);
+}
+
+.form-error:empty {
+    display: none;
+}
+
+/* =========================
+   VOID SALE FORM (void-sale.js)
+   The refund line stands out, because the cashier gives the money back by hand.
+========================= */
+.void-form-modal .modal-content {
+    width: min(100%, 460px);
+}
+
+.void-form-modal .form-field select,
+.void-form-modal .form-field input {
+    width: 100%;
+}
+
+.void-refund {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 0;
+    padding: 12px 14px;
+    border: 1px solid color-mix(in srgb, var(--color-warning, #fbbf24) 45%, transparent);
+    border-radius: var(--radius-md, 8px);
+    background: color-mix(in srgb, var(--color-warning, #fbbf24) 12%, transparent);
+    color: var(--color-text);
+    font-weight: 700;
+}
+
+.void-refund i {
+    margin-top: 3px;
+    color: var(--color-warning, #b45309);
+}
+
 /* =========================
    LIVE-UPDATE STATUS (live.js adds it to the top bar)
 ========================= */

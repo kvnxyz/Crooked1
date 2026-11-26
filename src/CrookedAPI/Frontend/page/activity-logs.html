@@ -7,7 +7,7 @@
 
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <link rel="stylesheet" href="../design/dashboard.css?v=30">
-    <link rel="stylesheet" href="../design/components.css?v=7">
+    <link rel="stylesheet" href="../design/components.css?v=8">
     <link rel="stylesheet" href="../design/activity-logs.css?v=1">
     <link rel="icon" type="image/png" href="../assets/Favicon.jpg">
 
@@ -102,7 +102,7 @@
         <main id="main-content" class="content-wrapper" tabindex="-1">
 
             <h1>AUDIT TRAILS</h1>
-            <p class="page-description">A timeline of who did what: logins, sales, exchanges, and changes to products, discounts and accounts.</p>
+            <p class="page-description">A timeline of who did what: logins, sales, voided sales, exchanges, and changes to products, discounts and accounts.</p>
 
             <div id="view-activity" class="content-section">
 
@@ -123,6 +123,7 @@
                                 <select id="typeFilter">
                                     <option value="">All types</option>
                                     <option value="Sale">Sales</option>
+                                    <option value="Void">Voided sales</option>
                                     <option value="Exchange">Exchanges</option>
                                     <option value="Product">Products</option>
                                     <option value="Discount">Discounts</option>
@@ -181,8 +182,8 @@
     <script src="../javascript/ui.js?v=10"></script>
     <script src="../javascript/live.js?v=3"></script>
     <script src="../javascript/layout.js?v=10"></script>
-    <script src="../javascript/account.js?v=4"></script>
-    <script src="../javascript/activity-logs.js?v=3"></script>
+    <script src="../javascript/account.js?v=5"></script>
+    <script src="../javascript/activity-logs.js?v=4"></script>
 
 </body>
 </html>

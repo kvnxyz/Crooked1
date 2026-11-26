@@ -18,14 +18,15 @@ src/
     api/
       Program.cs                # service registration, schema setup call, static file serving
       Controllers/              # one controller per domain: Auth, POS, Transaction, Exchange, Products, Discounts, Activity, Forecasting, Realtime
-      Models/                   # request DTOs, read models (TransactionViews), sheet rows, value lists, ExchangePolicy
+      Models/                   # request DTOs, read models (TransactionViews), sheet rows, value lists, ExchangePolicy, VoidPolicy
       Services/                 # ThresholdForecastService + SalesForecaster (ML.NET forecasting), TransactionStore (shared reads),
                                 # DiscountStore (coupon reads, subtotal, usage), AccountSessions (ends outdated sessions),
                                 # ActivityLog (writes activity_logs entries), Money (peso formatting),
                                 # TransactionExcel (xlsx export), ShopClock (UTC <-> PH time),
                                 # LiveUpdates + [LiveUpdate] (Supabase Realtime broadcasts),
                                 # ProductImages (restores committed photos into the Railway volume),
-                                # EmailSender (sends email), PasswordResetCodes (Forgot Password codes)
+                                # EmailSender (sends email), PasswordResetCodes (Forgot Password codes),
+                                # SaleVoids (Void Sale)
     Frontend/
       page/                     # one .html per page
       design/                   # one .css per page, plus dashboard.css (admin base) and components.css (shared components)
@@ -61,9 +62,10 @@ Pages:
   - `layout.js` provides `apiBase`, dialogs (`showDialog`), `showToast`, modals with focus trapping, the navigation drawer, the profile card, logout, the owner-only redirect, and forecast notifications.
   - `theme.js` handles light and dark mode.
   - `session.js` (the `Session` namespace) guards every page behind the login. It sends signed-out visitors to `index.html` (also when Back/Forward shows a page from the browser's memory), sends the browser to the login page whenever our API answers 401, and provides `Session.signOut()` for the logout buttons.
-  - `account.js` holds the Change Password form (`openPasswordForm`) and the profile menu's `changeOwnPassword`. It uses the `trapFocus`, `restoreFocus`, `showDialog` and `setProfileCardOpen` helpers that both `layout.js` and `PointOfSale.js` define. Staff Management uses the same form for the owner to set a staff member's password.
+  - `account.js` holds the Change Password form (`openPasswordForm`) and the profile menu's `changeOwnPassword`. It uses the `trapFocus`, `restoreFocus`, `showDialog` and `setProfileCardOpen` helpers that both `layout.js` and `PointOfSale.js` define.
+  - `void-sale.js` holds the Void Sale form (`openVoidForm`), used by the POS and the Sales Record (see Transactions and exchanges). It uses the same helpers as `account.js`, and its keyboard handler runs in the capture phase so the modal underneath doesn't also react to Escape and Tab.
   - `dashboard.css` holds the shared admin styles and colour tokens.
-  - Admin pages load `theme.js` and `session.js` in `<head>`, then `ui.js`, `live.js`, `layout.js`, `account.js` and the page's own script at the end of `<body>`. The POS loads `theme.js` and `session.js` in `<head>`, then `ui.js`, `live.js`, `PointOfSale.js` and `account.js`; the login page loads `theme.js` and `ui.js` (never `session.js`); the receipt loads `session.js` in `<head>`, then `ui.js` and `receipt.js`.
+  - Admin pages load `theme.js` and `session.js` in `<head>`, then `ui.js`, `live.js`, `layout.js`, `account.js` and the page's own script at the end of `<body>` (the Sales Record adds `void-sale.js` before its own script). The POS loads `theme.js` and `session.js` in `<head>`, then `ui.js`, `live.js`, `PointOfSale.js`, `account.js` and `void-sale.js`; the login page loads `theme.js` and `ui.js` (never `session.js`); the receipt loads `session.js` in `<head>`, then `ui.js` and `receipt.js`.
   - Show a skeleton while data loads and a `tableMessage` (with a retry action) when a request fails, instead of leaving a table blank.
   - Build rows with DOM methods and `textContent` (`UI.cell`, `UI.el`), not `innerHTML` with server data.
   - `index.js` and `PointOfSale.js` still keep their own copies of the `showDialog` and `trapFocus` helpers. Don't add more copies like them.
@@ -90,10 +92,15 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 
 ## Transactions and exchanges
 
-- Sale records are read-only in the Sales Record (the `transaction-logs` page). The page lists 10 per page, with who made each sale (Sold By), from `GET /api/POS/Transaction/search` (search, status, payment and date filters). The owner can export the filtered sales to `.xlsx` with `/export` (one Transactions sheet; items are not included). There is no import: sales only come from the POS, so no file can add or change a sale.
+- Sale records are read-only in the Sales Record (the `transaction-logs` page), apart from Void Sale (below). The page lists 10 per page, with who made each sale (Sold By), from `GET /api/POS/Transaction/search` (search, status, payment and date filters). The owner can export the filtered sales to `.xlsx` with `/export` (one Transactions sheet; items are not included). There is no import: sales only come from the POS, so no file can add or change a sale.
 - Its summary line shows the count and, for owners, the total revenue of every matching sale ("85 transactions in total • Total Revenue: ₱42,500.00"). `/search` returns that as `totalRevenue`: completed sales only (exchanged ones included, voided and pending left out), and `null` for staff, because revenue is owner-only. It replaced the old Sales History page, which showed the same sales.
 - `transactions.payment_method` is `Cash`, `GCash` or `Unknown`.
 - An exchanged sale keeps `status = 'Completed'` (so it still counts as revenue) and gets `has_exchange = TRUE`. The API shows it as "Exchanged".
+- **Void Sale** undoes a sale when the customer changes their mind, within 30 minutes of the sale (`VoidPolicy` in api/Models/Void.cs). After that, the 3-day exchange is the only option.
+  - Any signed-in cashier, owner or staff, can void, from the POS's Payment Complete prompt or the Sales Record's details window (left of "Exchange an item", shown only while the sale can be voided). Both open `openVoidForm` (`void-sale.js`), which asks for a reason (three common ones or "Other" with the cashier's own words) and tells the cashier what to give back ("Give the customer back ₱810.00 in cash" / "Send ₱810.00 back to the customer's GCash"). The system records the void but doesn't move money.
+  - `POST /api/POS/Transaction/{id}/void` calls `SaleVoids.VoidAsync` (api/Services), which undoes what `SaveTransaction` did in one database transaction: it gives the coupon its use back, puts the items back into stock (archived products too), takes the units off that day's `product_daily_sales` so the forecast ignores them, sets `status = 'Voided'` with `voided_at`, `voided_by` (the session's name) and `void_reason`, and writes a `Void` activity log entry. The rows are never deleted.
+  - The 30 minutes are counted from `transactions.created_at`, which the server sets when it saves the sale (`date_time` comes from the till's clock). Sales saved before `created_at` existed can't be voided, and neither can voided or exchanged sales. `SaveTransaction` returns `transactionId`, so the POS can void the sale it just saved.
+  - Revenue and the Exchanges page only use `Completed` sales, so a voided sale drops out of both by itself. The Sales Record's Status filter has "Voided", the details show who voided the sale, when and why, and Audit Trails has a "Voided sales" type.
 - Exchanges go through `ExchangeController` and follow `ExchangePolicy`: only items bought as a single piece (quantity 1), only within 3 days of the sale (Philippine dates), for the same product (name and category) at the same price in a different size and/or color. Items bought in larger quantities are not shown. Each exchange:
   - puts the returned variant back into stock and takes the replacement out of stock;
   - moves the sale's `product_daily_sales` count to the new variant;
@@ -102,9 +109,10 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 
 ## Accounts and roles
 
-- The Accounts page (`staff-management`) lists every account from `GET /api/Auth/get-staff` (owners first, `isSelf` marks the signed-in one). Active accounts have Email (Add Email / Change, `POST /api/Auth/email/{id}`), Role (an Owner/Staff dropdown, `POST /api/Auth/role/{id}`), Password (`staff-password/{id}`) and Archive (`toggle-archive/{id}`) columns.
-- Every account has an email (`users.email`), where Forgot Password sends its codes. Create Staff Account requires one (`register-staff`). Emails are saved in lower case, must pass `EmailPolicy` (api/Models/User.cs) and are unique ignoring case, archived accounts included. Accounts made before emails were required show "No email" until the owner adds one, and can't use Forgot Password until then.
-- The signed-in owner can't change their own role or archive their own account, so there is always an active owner. Their own Password button opens the Change Password form that asks for the current password.
+- The Accounts page (`staff-management`) lists every account from `GET /api/Auth/get-staff` (owners first, `isSelf` marks the signed-in one). Active accounts have Email (Add Email / Change, `POST /api/Auth/email/{id}`), Role (an Owner/Staff dropdown, `POST /api/Auth/role/{id}`) and Archive (`toggle-archive/{id}`) columns.
+- Passwords are private (data privacy): nobody, owners included, can set another account's password, so there is no Password column and no endpoint for it. Each person changes their own from the profile menu's Change Password (`change-password`, which asks for the current password), or resets a forgotten one with Forgot Password. A staff member with no email needs the owner to add one first.
+- Every account has an email (`users.email`), where Forgot Password sends its codes. Create Staff Account requires one (`register-staff`). Emails are saved in lower case, must pass `EmailPolicy` (api/Models/User.cs) and are unique ignoring case, archived accounts included. Accounts made before emails were required show only an Add Email button until the owner adds one, and can't use Forgot Password until then.
+- The signed-in owner can't change their own role or archive their own account, so there is always an active owner.
 
 ### Forgot Password
 
@@ -126,7 +134,7 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 
 ## Activity logs
 
-- `activity_logs` records who did what: sales ("Processed sale ..."), exchanges, product, discount and account changes, and logins and logouts. `activity_type` holds the kind (`ActivityTypes` in api/Models/Activity.cs); schema.sql sorts entries written before that column existed by their wording, and ones it doesn't recognise become `Other`. The `Import` type is only for older entries from the Excel import, which was removed.
+- `activity_logs` records who did what: sales ("Processed sale ..."), voided sales ("Voided sale ..." with the reason), exchanges, product, discount and account changes, and logins and logouts. `activity_type` holds the kind (`ActivityTypes` in api/Models/Activity.cs); schema.sql sorts entries written before that column existed by their wording, and ones it doesn't recognise become `Other`. The `Import` type is only for older entries from the Excel import, which was removed.
 - The owner-only `activity-logs` page (shown as Audit Trails) lists every entry, newest first, 20 per page, from `GET /api/Activity` (search, type, staff and date filters), with the Staff filter's names from `GET /api/Activity/staff`. It replaced the dashboard's old Recent Activity card.
 
 ## Sales forecasting

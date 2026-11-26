@@ -195,7 +195,8 @@ function changeOwnPassword() {
     openOwnPasswordForm();
 }
 
-// Any signed-in user, owner or staff; the Accounts page also opens it for the owner's own row.
+// Any signed-in user, owner or staff, for their own password only. Nobody can set another
+// account's password; a forgotten one is reset with Forgot Password on the login page.
 // index.js saves the username at login; sessions from before that was added type it in instead.
 function openOwnPasswordForm() {
     openPasswordForm({

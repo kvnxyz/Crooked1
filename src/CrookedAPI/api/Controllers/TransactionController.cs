@@ -191,7 +191,17 @@ namespace Crooked.Controllers
                             $"Processed sale {reference} ({string.Join(", ", details)})");
 
                         await dbTransaction.CommitAsync();
-                        return Ok(new { message = "Transaction saved successfully", tx, totalAmount = total, discountAmount });
+                        // transactionId lets the POS void the sale right away (VoidTransaction).
+                        return Ok(new
+                        {
+                            message = "Transaction saved successfully",
+                            tx,
+                            transactionId,
+                            referenceId = reference,
+                            totalAmount = total,
+                            discountAmount,
+                            paymentMethod
+                        });
                     }
                     catch
                     {
@@ -302,7 +312,8 @@ namespace Crooked.Controllers
             });
         }
 
-        // Read-only view of one sale: what was bought and any exchanges made on it.
+        // Read-only view of one sale: what was bought and any exchanges made on it. canVoid says whether
+        // the Void Sale button shows (VoidPolicy), and voidUntil until what time.
         [HttpGet("{transactionId:int}/details")]
         public async Task<IActionResult> GetTransactionDetails(int transactionId)
         {
@@ -317,14 +328,63 @@ namespace Crooked.Controllers
             var canExchange = transaction.StoredStatus == TransactionStatuses.Completed
                 && ExchangePolicy.IsOpen(transaction.StoredDateTime)
                 && items.Any(item => item.Quantity == ExchangePolicy.ItemQuantity);
+            var voidUntil = VoidPolicy.Until(transaction.StoredCreatedAt);
+            var canVoid = VoidPolicy.Problem(
+                transaction.StoredStatus, transaction.Status == TransactionStatuses.Exchanged,
+                transaction.StoredCreatedAt, DateTime.UtcNow) == null;
             return Ok(new
             {
                 transaction,
                 items,
                 exchanges,
                 canExchange,
-                exchangeUntil = ShopClock.DisplayDate(ExchangePolicy.LastDay(transaction.StoredDateTime))
+                exchangeUntil = ShopClock.DisplayDate(ExchangePolicy.LastDay(transaction.StoredDateTime)),
+                canVoid,
+                voidUntil = canVoid && voidUntil != null ? ShopClock.DisplayTime(voidUntil.Value) : null
             });
+        }
+
+        // Voids a sale within VoidPolicy.WindowMinutes of saving it, when the customer changes their mind:
+        // its items go back into stock and it stops counting as revenue (SaleVoids). Any signed-in cashier
+        // can void; their name (from the session) and the reason go into the sale and the activity log.
+        // The answer's message says what to give back to the customer.
+        [HttpPost("{transactionId:int}/void")]
+        [LiveUpdate(LiveTopics.Transactions, LiveTopics.Products, LiveTopics.Discounts, LiveTopics.Activity)]
+        public async Task<IActionResult> VoidTransaction(int transactionId, [FromBody] VoidRequest request)
+        {
+            var reasonProblem = VoidPolicy.ReasonProblem(request?.Reason);
+            if (reasonProblem != null) return BadRequest(new { message = reasonProblem });
+
+            try
+            {
+                await using var connection = new NpgsqlConnection(_connectionString);
+                await connection.OpenAsync();
+                await using var transaction = await connection.BeginTransactionAsync();
+
+                var result = await SaleVoids.VoidAsync(
+                    connection, transaction, transactionId, SessionClaims.FullNameOf(User), request!.Reason!.Trim());
+                if (result.Outcome != VoidOutcome.Voided)
+                {
+                    await transaction.RollbackAsync();
+                    return result.Outcome == VoidOutcome.NotFound
+                        ? NotFound(new { message = result.Message })
+                        : Conflict(new { message = result.Message });
+                }
+
+                await transaction.CommitAsync();
+                return Ok(new
+                {
+                    message = result.Message,
+                    referenceId = result.ReferenceId,
+                    refund = result.Refund,
+                    paymentMethod = result.PaymentMethod
+                });
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Void Sale Error: {ex.Message}");
+                return StatusCode(500, new { message = "The sale could not be voided. Please try again." });
+            }
         }
 
         // Excel workbook of every sale that matches the current search and filters.

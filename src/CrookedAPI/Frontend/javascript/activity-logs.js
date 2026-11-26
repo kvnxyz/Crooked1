@@ -6,7 +6,7 @@
 ========================= */
 const ACTIVITY_PAGE_SIZE = 20;
 const ACTIVITY_COLUMNS = 4;
-const TYPE_TONES = { Sale: 'success', Exchange: 'info', Import: 'info', Discount: 'info', Product: 'warning', Account: 'warning' };
+const TYPE_TONES = { Sale: 'success', Void: 'danger', Exchange: 'info', Import: 'info', Discount: 'info', Product: 'warning', Account: 'warning' };
 
 const activityFilters = { search: '', type: '', staff: '', from: '', to: '' };
 let activityPage = 1;

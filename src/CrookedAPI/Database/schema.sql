@@ -168,6 +168,18 @@ ALTER TABLE transactions
     ADD COLUMN IF NOT EXISTS manual_discount_percent INTEGER
         CHECK (manual_discount_percent IS NULL OR manual_discount_percent BETWEEN 1 AND 100);
 
+-- Voids (VoidPolicy in api/Models/Void.cs): a cashier can void a sale within 30 minutes of saving it,
+-- when the customer changes their mind. created_at is when the server saved the sale (date_time comes
+-- from the till's clock), so changing the till's clock can't stretch the window. Sales saved before
+-- created_at existed have none and can't be voided. A voided sale keeps its rows, with status
+-- 'Voided' and who voided it, when and why.
+ALTER TABLE transactions
+    ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS voided_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS voided_by TEXT,
+    ADD COLUMN IF NOT EXISTS void_reason TEXT;
+ALTER TABLE transactions ALTER COLUMN created_at SET DEFAULT NOW();
+
 -- The kind of each activity log entry (ActivityTypes in api/Models/Activity.cs), for the Activity
 -- Logs page's filter. Entries written before the column existed are sorted by their wording, once.
 ALTER TABLE activity_logs

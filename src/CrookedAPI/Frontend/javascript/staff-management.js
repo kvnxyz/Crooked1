@@ -1,8 +1,10 @@
 /* =========================
    ACCOUNTS
-   Active accounts: Name, User, Email, Role, Password, Archive. Archived accounts: Name, User, Role, Archive.
+   Active accounts: Name, User, Email, Role, Archive. Archived accounts: Name, User, Role, Archive.
    The signed-in owner's own row has no role dropdown or archive button, so there is always an owner.
-   Forgot Password (login page) sends its codes to the account's email.
+   For data privacy the owner can't set anyone's password here: each person changes their own from
+   the profile menu (account.js) or resets it with Forgot Password, which emails a code to the
+   account's email.
 ========================= */
 const ROLE_NAMES = { owner: 'Owner', staff: 'Staff' };
 
@@ -29,12 +31,10 @@ function roleCell(member) {
     return UI.cell(select);
 }
 
-// Accounts made before emails were required show "No email" until the owner adds one.
+// Accounts made before emails were required show only the Add Email button until the owner adds one.
 function emailCell(member) {
     const content = UI.el('div', 'account-email');
-    content.appendChild(member.email
-        ? UI.el('span', 'account-email-address', member.email)
-        : UI.badge('No email', 'warning'));
+    if (member.email) content.appendChild(UI.el('span', 'account-email-address', member.email));
 
     const button = UI.el('button', 'btn btn-sm btn-secondary');
     button.type = 'button';
@@ -43,15 +43,6 @@ function emailCell(member) {
     button.addEventListener('click', () => openEmailForm(member));
     content.appendChild(button);
     return UI.cell(content, 'col-wrap');
-}
-
-function passwordCell(member) {
-    const button = UI.el('button', 'btn btn-sm btn-secondary');
-    button.type = 'button';
-    button.append('Change Password', UI.el('span', 'visually-hidden', ` for ${member.fullName}`));
-    // The owner's own password needs the current one, like the profile menu (account.js).
-    button.addEventListener('click', () => member.isSelf ? openOwnPasswordForm() : changeAccountPassword(member));
-    return UI.cell(button);
 }
 
 function archiveCell(member) {
@@ -74,12 +65,12 @@ function activeRow(member) {
     const row = document.createElement('tr');
     row.append(
         nameCell(member), UI.cell(member.username, 'col-muted'), emailCell(member),
-        roleCell(member), passwordCell(member), archiveCell(member)
+        roleCell(member), archiveCell(member)
     );
     return row;
 }
 
-// An archived account can't log in until it is unarchived, so it has no password or role controls.
+// An archived account can't log in until it is unarchived, so it has no email or role controls.
 function archivedRow(member) {
     const row = document.createElement('tr');
     row.append(nameCell(member), UI.cell(member.username, 'col-muted'), roleCell(member), archiveCell(member));
@@ -91,7 +82,7 @@ async function fetchStaff({ quiet = false } = {}) {
     const archiveBody = document.getElementById('archiveTableBody');
     if (!staffBody || !archiveBody) return;
     if (!quiet) {
-        UI.tableSkeleton(staffBody, 6, 4);
+        UI.tableSkeleton(staffBody, 5, 4);
         UI.tableSkeleton(archiveBody, 4, 2);
     }
 
@@ -101,7 +92,7 @@ async function fetchStaff({ quiet = false } = {}) {
         const archived = staff.filter(member => !member.isActive);
 
         if (active.length) UI.fillTable(staffBody, active.map(activeRow), { fade: !quiet });
-        else UI.tableMessage(staffBody, 6, {
+        else UI.tableMessage(staffBody, 5, {
             icon: 'fa-user-plus',
             title: 'No active accounts',
             message: 'Create an account above to give a staff member access.'
@@ -111,7 +102,7 @@ async function fetchStaff({ quiet = false } = {}) {
         else UI.tableMessage(archiveBody, 4, { icon: 'fa-box-archive', title: 'No archived accounts' });
     } catch (error) {
         console.error('Staff Error:', error);
-        UI.tableMessage(staffBody, 6, {
+        UI.tableMessage(staffBody, 5, {
             isError: true,
             title: 'Unable to load accounts',
             message: error.message,
@@ -187,25 +178,6 @@ function setArchived(member, archive) {
         null,
         { confirmText: action, danger: archive }
     );
-}
-
-/* =========================
-   CHANGE PASSWORD
-========================= */
-// The owner sets another account's password without needing the old one (account.js builds the form).
-function changeAccountPassword(member) {
-    openPasswordForm({
-        title: 'Change Password',
-        description: `Choose a new password for ${member.fullName} (${member.username}).`,
-        onSubmit: async ({ newPassword }) => {
-            const result = await UI.fetchJson(`${apiBase}/api/Auth/staff-password/${member.id}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ newPassword })
-            });
-            return result?.message;
-        }
-    });
 }
 
 /* =========================

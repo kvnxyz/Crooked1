@@ -32,6 +32,10 @@ namespace Crooked.Services
         public static string Display(DateTime storedUtc) =>
             ToShopTime(storedUtc).ToString("MMM dd, yyyy · hh:mm tt", CultureInfo.InvariantCulture);
 
+        // The time of day only, such as "02:45 PM" (the void deadline, which is always within 30 minutes).
+        public static string DisplayTime(DateTime storedUtc) =>
+            ToShopTime(storedUtc).ToString("hh:mm tt", CultureInfo.InvariantCulture);
+
         public static string Iso(DateTime storedUtc) =>
             new DateTimeOffset(ToShopTime(storedUtc), Offset).ToString("yyyy-MM-dd'T'HH:mm:sszzz", CultureInfo.InvariantCulture);
     }

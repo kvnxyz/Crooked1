@@ -973,6 +973,19 @@ select[aria-invalid="true"] {
   min-width: 140px;
 }
 
+/* Payment Complete: wide enough for three buttons, with Void Sale kept apart on the left. */
+.receipt-modal-content {
+  width: min(100%, 520px);
+}
+
+.receipt-actions {
+  flex-wrap: wrap;
+}
+
+.receipt-void-button {
+  margin-right: auto;
+}
+
 .variant-availability,
 .payment-summary {
   min-height: 1.5em;

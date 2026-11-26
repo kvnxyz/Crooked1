@@ -497,50 +497,8 @@ namespace Crooked.Controllers
             }
         }
 
-        // The owner setting another account's password from the Accounts page, without its current
-        // password. The signed-in account changes its own password with change-password instead.
-        [Authorize(Roles = UserRoles.Owner)]
-        [HttpPost("staff-password/{id}")]
-        [LiveUpdate(LiveTopics.Activity)]
-        public IActionResult SetStaffPassword(int id, [FromBody] SetPasswordRequest request)
-        {
-            if (!PasswordPolicy.IsValid(request.NewPassword))
-            {
-                return BadRequest(new { message = WeakPasswordMessage });
-            }
-
-            try
-            {
-                using (var connection = new NpgsqlConnection(_connectionString))
-                {
-                    connection.Open();
-
-                    var account = FindAccount(connection, id);
-                    if (account == null)
-                    {
-                        return NotFound(new { message = "Account not found." });
-                    }
-                    if (IsSignedInAs(account))
-                    {
-                        return BadRequest(new { message = "Change your own password with your current password instead." });
-                    }
-
-                    using (var cmd = new NpgsqlCommand("UPDATE users SET password = @newPass WHERE id = @id", connection))
-                    {
-                        cmd.Parameters.AddWithValue("@newPass", request.NewPassword);
-                        cmd.Parameters.AddWithValue("@id", id);
-                        cmd.ExecuteNonQuery();
-                    }
-
-                    LogAccountChange(connection, $"Changed password: {account.FullName}");
-                    return Ok(new { message = $"The password for \"{account.FullName}\" has been changed." });
-                }
-            }
-            catch (Exception ex)
-            {
-                return StatusCode(500, new { message = ex.Message });
-            }
-        }
+        // There is no endpoint for the owner to set another account's password: for data privacy,
+        // only the account's own person chooses it, with change-password or Forgot Password.
 
         /* =========================
            FORGOT PASSWORD (login page, so no session is needed)

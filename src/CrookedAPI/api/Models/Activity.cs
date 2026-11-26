@@ -4,6 +4,8 @@ namespace Crooked.Models
     public static class ActivityTypes
     {
         public const string Sale = "Sale";
+        // A sale undone within VoidPolicy.WindowMinutes, with the reason.
+        public const string Void = "Void";
         public const string Exchange = "Exchange";
         public const string Product = "Product";
         public const string Discount = "Discount";
@@ -14,7 +16,7 @@ namespace Crooked.Models
         // Entries from before activity_type existed whose wording schema.sql doesn't recognise.
         public const string Other = "Other";
 
-        public static readonly string[] All = { Sale, Exchange, Product, Discount, Account, Login, Import, Other };
+        public static readonly string[] All = { Sale, Void, Exchange, Product, Discount, Account, Login, Import, Other };
 
         public static string? Normalize(string? value) =>
             All.FirstOrDefault(type => string.Equals(type, value?.Trim(), StringComparison.OrdinalIgnoreCase));

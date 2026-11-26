@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CRKD | Point of Sale</title>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-  <link rel="stylesheet" href="../design/PointofSale.css?v=25">
-  <link rel="stylesheet" href="../design/components.css?v=7">
+  <link rel="stylesheet" href="../design/PointofSale.css?v=26">
+  <link rel="stylesheet" href="../design/components.css?v=8">
   <link rel="icon" type="image/png" href="../assets/Favicon.jpg">
 
   <!-- Applies the saved theme before the page is drawn, so the page never flashes the wrong colours. -->
@@ -289,18 +289,20 @@
     </div>
   </div>
 
-  <!-- Shown after the sale is saved; the checkout is already cleared by then. -->
+  <!-- Shown after the sale is saved; the checkout is already cleared by then.
+       Void Sale (void-sale.js) undoes the sale if the customer changes their mind. -->
   <div id="receiptModal" class="modal" role="dialog" aria-modal="true"
     aria-labelledby="receiptModalTitle" aria-describedby="receiptModalText" hidden>
-    <div class="modal-content">
+    <div class="modal-content receipt-modal-content">
       <div class="modal-header">
         <div>
           <h2 id="receiptModalTitle">Payment Complete</h2>
-          <p id="receiptModalText">The sale has been saved. Do you want to print a receipt?</p>
+          <p id="receiptModalText">The sale has been saved. Do you want to print a receipt? If the customer changed their mind, void the sale instead.</p>
         </div>
       </div>
 
-      <div class="modal-actions">
+      <div class="modal-actions receipt-actions">
+        <button id="receiptVoidBtn" type="button" class="btn btn-danger-outline receipt-void-button">Void Sale</button>
         <button id="receiptNoBtn" type="button" class="btn btn-secondary">No Receipt</button>
         <button id="receiptYesBtn" type="button" class="btn btn-primary" data-autofocus>Print Receipt</button>
       </div>
@@ -309,8 +311,9 @@
 
   <script src="../javascript/ui.js?v=10"></script>
   <script src="../javascript/live.js?v=3"></script>
-  <script src="../javascript/PointOfSale.js?v=20"></script>
-  <script src="../javascript/account.js?v=4"></script>
+  <script src="../javascript/PointOfSale.js?v=21"></script>
+  <script src="../javascript/account.js?v=5"></script>
+  <script src="../javascript/void-sale.js?v=1"></script>
 
 </body>
 </html>

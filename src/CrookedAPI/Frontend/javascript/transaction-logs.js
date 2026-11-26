@@ -206,11 +206,15 @@ async function exportTransactions(event) {
 }
 
 /* =========================
-   DETAILS (read-only)
+   DETAILS (read-only, apart from Void Sale)
 ========================= */
 const detailsModal = document.getElementById('transactionDetailsModal');
 const detailsBody = document.getElementById('detailsBody');
 const detailsExchangeLink = document.getElementById('detailsExchangeLink');
+const detailsVoidButton = document.getElementById('detailsVoidButton');
+// The sale the details window shows (a row from the list), and the same sale as Void Sale needs it.
+let detailsTransaction = null;
+let detailsSale = null;
 
 function detailsSkeleton() {
     const grid = UI.el('div', 'detail-grid');
@@ -224,7 +228,7 @@ function detailsSkeleton() {
     detailsBody.replaceChildren(grid, items);
 }
 
-function renderDetails({ transaction, items, exchanges, canExchange, exchangeUntil }) {
+function renderDetails({ transaction, items, exchanges, canExchange, exchangeUntil, canVoid, voidUntil }) {
     const summary = UI.el('dl', 'detail-grid');
     summary.append(
         UI.detailPair('Reference ID', transaction.referenceId || '—'),
@@ -240,6 +244,12 @@ function renderDetails({ transaction, items, exchanges, canExchange, exchangeUnt
             ? `Manual ${transaction.manualDiscountPercent}%`
             : transaction.discountCode || 'Coupon';
         summary.appendChild(UI.detailPair('Discount', `${name} · −${UI.formatPeso(transaction.discountAmount)}`));
+    }
+    if (transaction.voidedAt) {
+        summary.append(
+            UI.detailPair('Voided', `${transaction.voidedAt} by ${transaction.voidedBy || 'Unknown'}`),
+            UI.detailPair('Void reason', transaction.voidReason || '—')
+        );
     }
 
     const itemsSection = UI.el('section', 'details-section');
@@ -306,18 +316,39 @@ function renderDetails({ transaction, items, exchanges, canExchange, exchangeUnt
     detailsExchangeLink.hidden = !canExchange;
     detailsExchangeLink.title = canExchange ? `Items can be exchanged until ${exchangeUntil}.` : '';
     detailsExchangeLink.href = `exchange.html?sale=${encodeURIComponent(transaction.referenceId || transaction.transactionId)}`;
+
+    // Only within 30 minutes of the sale (VoidPolicy on the server decides).
+    detailsSale = {
+        transactionId: transaction.transactionId,
+        referenceId: transaction.referenceId,
+        totalAmount: transaction.totalAmount,
+        paymentMethod: transaction.paymentMethod
+    };
+    detailsVoidButton.hidden = !canVoid;
+    detailsVoidButton.title = canVoid && voidUntil ? `This sale can be voided until ${voidUntil}.` : '';
+}
+
+// Fetches the open sale's details again, such as after a void.
+async function loadDetails() {
+    const transaction = detailsTransaction;
+    const details = await UI.fetchJson(`${apiBase}/api/POS/Transaction/${encodeURIComponent(transaction.transactionId)}/details`);
+    // Another sale was opened while this one was loading.
+    if (transaction === detailsTransaction) renderDetails(details);
 }
 
 async function openDetails(transaction) {
+    detailsTransaction = transaction;
+    detailsSale = null;
     document.getElementById('detailsTitle').textContent =
         `Transaction ${transaction.referenceId || `#${transaction.transactionId}`}`;
     detailsExchangeLink.hidden = true;
+    detailsVoidButton.hidden = true;
     detailsBody.classList.remove('fade-in');
     detailsSkeleton();
     openModalElement(detailsModal, closeDetails);
 
     try {
-        renderDetails(await UI.fetchJson(`${apiBase}/api/POS/Transaction/${encodeURIComponent(transaction.transactionId)}/details`));
+        await loadDetails();
     } catch (error) {
         console.error('Transaction Details Error:', error);
         const retry = UI.el('button', 'btn btn-secondary btn-sm');
@@ -334,6 +365,24 @@ function closeDetails() {
     closeModalElement(detailsModal);
 }
 
+// void-sale.js asks for the reason and voids the sale; the details and the list then show it as Voided.
+function voidDetailsSale() {
+    if (!detailsSale) return;
+    openVoidForm(detailsSale, {
+        onVoided: async () => {
+            detailsVoidButton.hidden = true;
+            detailsExchangeLink.hidden = true;
+            loadTransactions(currentPage, { quiet: true });
+            try {
+                await loadDetails();
+            } catch (error) {
+                console.error('Transaction Details Error:', error);
+            }
+            detailsModal.querySelector('.modal-actions [data-close-details]')?.focus();
+        }
+    });
+}
+
 /* =========================
    PAGE LOAD
 ========================= */
@@ -342,7 +391,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if (role && role.toLowerCase() !== 'owner') {
         document.getElementById('exportButton')?.remove();
         detailsExchangeLink.remove();
-        document.getElementById('detailsSubtitle').textContent = "Sale records can't be edited.";
+        document.getElementById('detailsSubtitle').textContent =
+            `Sale records can't be edited, but a sale can be voided within ${VOID_WINDOW_MINUTES} minutes.`;
     }
 
     const debouncedFilter = UI.debounce(applyFilters, 350);
@@ -357,6 +407,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('exportButton')?.addEventListener('click', exportTransactions);
 
     detailsModal.querySelectorAll('[data-close-details]').forEach(button => button.addEventListener('click', closeDetails));
+    detailsVoidButton.addEventListener('click', voidDetailsSale);
     detailsModal.addEventListener('click', event => {
         if (event.target === detailsModal) closeDetails();
     });

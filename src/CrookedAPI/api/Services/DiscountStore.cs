@@ -56,6 +56,16 @@ namespace Crooked.Services
             await command.ExecuteNonQueryAsync();
         }
 
+        // Gives a coupon back the use a voided sale took (SaleVoids). Does nothing if it was deleted.
+        public static async Task ReleaseUseAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string code)
+        {
+            await using var command = new NpgsqlCommand(
+                "UPDATE discounts SET times_used = times_used - 1 WHERE upper(code) = upper(@code) AND times_used > 0",
+                connection, transaction);
+            command.Parameters.AddWithValue("@code", code);
+            await command.ExecuteNonQueryAsync();
+        }
+
         // The most a staff member can take off with a manual discount; 0 means they can't give one.
         public static async Task<int> StaffMaxPercentAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction)
         {

@@ -11,7 +11,7 @@ namespace Crooked.Services
         public const string SummaryColumns = @"
             t.transaction_id, t.reference_id, t.date_time, t.total_amount, t.status, t.has_exchange,
             t.assisted_by, t.payment_method, t.discount_code, t.discount_amount,
-            t.manual_discount_percent,
+            t.manual_discount_percent, t.created_at, t.voided_at, t.voided_by, t.void_reason,
             (SELECT COALESCE(SUM(ti.quantity), 0) FROM transaction_items ti WHERE ti.transaction_id = t.transaction_id) AS item_count";
 
         public static TransactionSummary ReadSummary(NpgsqlDataReader reader)
@@ -32,8 +32,12 @@ namespace Crooked.Services
                 reader["discount_code"] as string,
                 Convert.ToDecimal(reader["discount_amount"]),
                 reader["manual_discount_percent"] is int manualPercent ? manualPercent : null,
+                reader["voided_at"] is DateTime voidedAt ? ShopClock.Display(voidedAt) : null,
+                reader["voided_by"] as string,
+                reader["void_reason"] as string,
                 storedStatus,
-                dateTime);
+                dateTime,
+                reader["created_at"] is DateTime createdAt ? createdAt : null);
         }
 
         public static async Task<TransactionSummary?> FindSummaryAsync(NpgsqlConnection connection, int transactionId)

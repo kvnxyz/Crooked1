@@ -1084,6 +1084,10 @@ function confirmCancelCheckout() {
 ========================= */
 let salePending = false;
 let receiptTx = null;
+// The sale as the server saved it ({ transactionId, referenceId, totalAmount, paymentMethod }),
+// for Void Sale on the receipt prompt.
+let receiptSale = null;
+const receiptVoidBtn = document.getElementById("receiptVoidBtn");
 
 function generateReferenceId() {
   return 'REF-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
@@ -1123,7 +1127,7 @@ function buildTransaction(method, received = null, change = null, refId = null) 
 
 // Saves the sale with one request: the server takes the stock and saves the sale together
 // (TransactionController.SaveTransaction), so a sale that fails changes nothing and can be tried again.
-// Returns { saved: true }, { saved: false } after showing the error, { discountProblem } when the
+// Returns { saved: true, sale }, { saved: false } after showing the error, { discountProblem } when the
 // discount can no longer be used, or { stockProblem: true } when the shop no longer has enough of an
 // item (another till sold it, or it was edited or archived).
 async function processCheckout(tx) {
@@ -1157,8 +1161,18 @@ async function processCheckout(tx) {
     }
     if (!transactionRes.ok) throw new Error(`Transaction could not be saved (${transactionRes.status})`);
 
+    // The saved sale, for Void Sale on the receipt prompt (the server works out the total).
+    const result = await transactionRes.json().catch(() => ({}));
     console.log("Sale saved.");
-    return { saved: true };
+    return {
+      saved: true,
+      sale: result.transactionId ? {
+        transactionId: result.transactionId,
+        referenceId: result.referenceId || tx.referenceId,
+        totalAmount: result.totalAmount ?? tx.total_amount,
+        paymentMethod: result.paymentMethod || tx.payment_method
+      } : null
+    };
   } catch (err) {
     console.error("Error during checkout:", err);
     showToast("Checkout failed. Please try again.", true);
@@ -1176,7 +1190,7 @@ async function completeSale(tx, modalId, submitButton) {
   submitButton.setAttribute("aria-disabled", "true");
   submitButton.textContent = "Saving...";
 
-  const { saved, discountProblem, stockProblem } = await processCheckout(tx);
+  const { saved, sale, discountProblem, stockProblem } = await processCheckout(tx);
   // Still pending, so this refresh leaves the checkout alone until it is checked below.
   if (stockProblem) await loadProducts({ quiet: true });
 
@@ -1215,6 +1229,8 @@ async function completeSale(tx, modalId, submitButton) {
   const returnFocus = hideModal(modalId, { restore: false });
   clearCheckout();
   receiptTx = tx;
+  receiptSale = sale;
+  receiptVoidBtn.hidden = !sale;
   showModal("receiptModal", returnFocus);
   announce("Payment complete. The sale was saved.");
   // Shows the stock this sale left right away, without waiting for (or depending on) the live update.
@@ -1350,10 +1366,25 @@ function finishReceipt(print) {
   if (print && !printReceipt(receiptTx)) return;
   hideModal("receiptModal");
   receiptTx = null;
+  receiptSale = null;
+}
+
+// The customer changed their mind: void-sale.js asks for the reason, voids the sale (its items go
+// back into stock) and tells the cashier what to give back. Later on, the sale can still be voided
+// from the Sales Record within 30 minutes.
+function voidReceiptSale() {
+  if (!receiptSale) return;
+  openVoidForm(receiptSale, {
+    onVoided: () => {
+      finishReceipt(false);
+      loadProducts({ quiet: true });
+    }
+  });
 }
 
 document.getElementById("receiptYesBtn").addEventListener("click", () => finishReceipt(true));
 document.getElementById("receiptNoBtn").addEventListener("click", () => finishReceipt(false));
+receiptVoidBtn.addEventListener("click", voidReceiptSale);
 
 /* =========================
    PAGE LOAD

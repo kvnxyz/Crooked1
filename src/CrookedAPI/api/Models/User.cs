@@ -24,12 +24,6 @@
         public string NewPassword { get; set; } = string.Empty;
     }
 
-    // The owner setting another account's password (Accounts page).
-    public class SetPasswordRequest
-    {
-        public string NewPassword { get; set; } = string.Empty;
-    }
-
     // The owner making another account an owner or staff (Accounts page). Role is a UserRoles value.
     public class ChangeRoleRequest
     {
@@ -67,7 +61,7 @@
         }
     }
 
-    // Rules for every new password: staff accounts, password changes and the owner's password reset.
+    // Rules for every new password: new staff accounts, password changes and Forgot Password resets.
     // Logging in does not check them, so older passwords keep working.
     // ui.js (isValidPassword) checks the same rules before a form is sent.
     public static class PasswordPolicy
