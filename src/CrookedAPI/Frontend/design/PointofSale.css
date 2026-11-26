@@ -807,9 +807,16 @@ select[aria-invalid="true"] {
   min-width: 88px;
 }
 
-/* Manual discount: the percent field under the dropdown, with the cashier's limit underneath. */
+/* Manual discount: the percent field under the dropdown, with a hint underneath. For staff it holds
+   the owner's percentage and is read-only. */
 .manual-discount-fields {
   margin-top: 4px;
+}
+
+.manual-discount-fields input[readonly] {
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  cursor: default;
 }
 
 .discount-applied {
@@ -971,19 +978,6 @@ select[aria-invalid="true"] {
 
 .modal-actions .btn {
   min-width: 140px;
-}
-
-/* Payment Complete: wide enough for three buttons, with Void Sale kept apart on the left. */
-.receipt-modal-content {
-  width: min(100%, 520px);
-}
-
-.receipt-actions {
-  flex-wrap: wrap;
-}
-
-.receipt-void-button {
-  margin-right: auto;
 }
 
 .variant-availability,

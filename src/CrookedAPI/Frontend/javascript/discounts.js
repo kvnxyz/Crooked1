@@ -1,6 +1,6 @@
 /* =========================
    DISCOUNT COUPONS (owner only)
-   The owner creates coupons here and sets how much staff can take off with a manual discount.
+   The owner creates coupons here and sets the one percentage staff can give with a manual discount.
    Cashiers pick a coupon or type a manual discount at the Point of Sale; the server checks it there
    and works out the discount itself (DiscountsController, TransactionController).
 ========================= */
@@ -263,68 +263,69 @@ async function submitDiscount(discount) {
 
 /* =========================
    MANUAL DISCOUNTS
-   How much staff can take off at the POS without a coupon (0 turns it off for them). Owners can
-   give any percentage. The server checks the limit again when the sale is saved.
+   The one percentage staff can take off at the POS without a coupon: if it is 5, staff give
+   exactly 5%, never 2, 3 or 4 (0 turns it off for them). Owners can give any percentage. The server
+   checks it again when the sale is saved (ManualDiscount).
 ========================= */
 const manualForm = document.getElementById('manualDiscountForm');
-const staffMaxInput = document.getElementById('staffMaxPercent');
+const staffPercentInput = document.getElementById('staffPercent');
 const saveManualButton = document.getElementById('saveManualDiscountBtn');
 const manualError = document.getElementById('manualDiscountError');
-let savedStaffMaxPercent = null;
+let savedStaffPercent = null;
 
 function setManualFormEnabled(enabled) {
-    staffMaxInput.disabled = !enabled;
+    staffPercentInput.disabled = !enabled;
     saveManualButton.disabled = !enabled;
 }
 
 async function loadManualDiscount({ quiet = false } = {}) {
     if (!quiet) {
         setManualFormEnabled(false);
-        staffMaxInput.value = '';
-        staffMaxInput.placeholder = 'Loading...';
+        staffPercentInput.value = '';
+        staffPercentInput.placeholder = 'Loading...';
         manualError.hidden = true;
     }
 
     try {
         const settings = await UI.fetchJson(`${apiBase}/api/Discounts/manual`);
-        savedStaffMaxPercent = settings.staffMaxPercent;
-        // A live refresh doesn't replace a limit the owner is still typing.
-        if (!quiet || document.activeElement !== staffMaxInput) staffMaxInput.value = String(settings.staffMaxPercent);
-        staffMaxInput.placeholder = 'e.g. 10';
+        savedStaffPercent = settings.staffPercent;
+        // A live refresh doesn't replace a percentage the owner is still typing.
+        if (!quiet || document.activeElement !== staffPercentInput) staffPercentInput.value = String(settings.staffPercent);
+        staffPercentInput.placeholder = 'e.g. 5';
         manualError.hidden = true;
         setManualFormEnabled(true);
     } catch (error) {
         console.error('Manual Discount Error:', error);
         if (quiet) return;
-        staffMaxInput.placeholder = '';
+        staffPercentInput.placeholder = '';
         document.getElementById('manualDiscountErrorText').textContent =
-            `The manual discount limit could not be loaded. ${connectionMessage(error)}`;
+            `The staff manual discount could not be loaded. ${connectionMessage(error)}`;
         manualError.hidden = false;
     }
 }
 
 function saveManualDiscount(event) {
     event.preventDefault();
-    staffMaxInput.removeAttribute('aria-invalid');
+    staffPercentInput.removeAttribute('aria-invalid');
 
-    const percent = Number(staffMaxInput.value);
-    if (!staffMaxInput.value || !Number.isInteger(percent) || percent < 0 || percent > 100) {
-        markInvalid(staffMaxInput, 'Enter the staff limit as a whole number from 0 to 100.');
+    const percent = Number(staffPercentInput.value);
+    if (!staffPercentInput.value || !Number.isInteger(percent) || percent < 0 || percent > 100) {
+        markInvalid(staffPercentInput, 'Enter the staff discount as a whole number from 0 to 100.');
         return;
     }
-    if (percent === savedStaffMaxPercent) {
-        showToast(percent === 0 ? 'Manual discounts are already off for staff.' : `The staff limit is already ${percent}%.`, false);
+    if (percent === savedStaffPercent) {
+        showToast(percent === 0 ? 'Manual discounts are already off for staff.' : `The staff manual discount is already ${percent}%.`, false);
         return;
     }
 
     showDialog(
-        'Manual Discount Limit',
+        'Staff Manual Discount',
         percent === 0
             ? 'Turn off manual discounts for staff? Owners can still give them.'
-            : `Let staff give manual discounts of up to ${percent}% off?`,
+            : `Set the staff manual discount to ${percent}%? Staff will only be able to give exactly ${percent}% off.`,
         () => submitManualDiscount(percent),
         null,
-        { confirmText: percent === 0 ? 'Turn Off' : 'Save Limit', danger: percent === 0 }
+        { confirmText: percent === 0 ? 'Turn Off' : 'Save', danger: percent === 0 }
     );
 }
 
@@ -334,10 +335,10 @@ async function submitManualDiscount(percent) {
         const result = await UI.fetchJson(`${apiBase}/api/Discounts/manual`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ staffMaxPercent: percent })
+            body: JSON.stringify({ staffPercent: percent })
         });
-        savedStaffMaxPercent = result.staffMaxPercent;
-        showToast(result?.message || 'The limit has been saved.', false);
+        savedStaffPercent = result.staffPercent;
+        showToast(result?.message || 'The staff manual discount has been saved.', false);
     } catch (error) {
         console.error('Manual Discount Save Error:', error);
         showToast(connectionMessage(error), true);
@@ -375,9 +376,9 @@ document.addEventListener('DOMContentLoaded', () => {
     startsOnInput.addEventListener('change', () => { endsOnInput.min = startsOnInput.value; });
 
     manualForm.addEventListener('submit', saveManualDiscount);
-    staffMaxInput.addEventListener('input', () => {
-        staffMaxInput.value = staffMaxInput.value.replace(/\D/g, '').slice(0, 3);
-        staffMaxInput.removeAttribute('aria-invalid');
+    staffPercentInput.addEventListener('input', () => {
+        staffPercentInput.value = staffPercentInput.value.replace(/\D/g, '').slice(0, 3);
+        staffPercentInput.removeAttribute('aria-invalid');
     });
     document.getElementById('retryManualDiscountBtn').addEventListener('click', () => loadManualDiscount());
 

@@ -152,9 +152,10 @@ ALTER TABLE transactions
     ADD COLUMN IF NOT EXISTS discount_code TEXT,
     ADD COLUMN IF NOT EXISTS discount_amount NUMERIC(12, 2) NOT NULL DEFAULT 0;
 
--- Manual discounts: instead of a coupon, the cashier types a whole-number percentage. Owners can
--- give up to 100%; staff up to staff_max_percent, which the owner sets on the Discounts page
--- (0 turns them off for staff). discount_settings always has exactly one row.
+-- Manual discounts: instead of a coupon, the cashier gives a whole-number percentage. Owners can
+-- give any percentage up to 100%; staff can only give exactly staff_max_percent, which the owner
+-- sets on the Discounts page (0 turns them off for staff). The column keeps its old name from when
+-- it was an upper limit. discount_settings always has exactly one row.
 CREATE TABLE IF NOT EXISTS discount_settings (
     id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
     staff_max_percent INTEGER NOT NULL DEFAULT 10 CHECK (staff_max_percent BETWEEN 0 AND 100),

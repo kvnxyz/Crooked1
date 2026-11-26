@@ -823,9 +823,12 @@ let discountPending = false;
 
 // The dropdown's value for a manual discount. Coupon codes are saved in capitals, so none can match it.
 const MANUAL_OPTION = "manual";
-// The most the signed-in person can take off with a manual discount, or 0 when they can't. The
-// server works it out from their role: owners up to 100%, staff up to the owner's limit.
-let manualMaxPercent = 0;
+const MANUAL_MAX_PERCENT = 100;
+// Whether the signed-in person can give a manual discount, and the one percentage they must use:
+// null for owners (any whole number from 1 to 100), the owner's setting for staff. The server works
+// both out from the session's role (ManualDiscount).
+let manualAllowed = false;
+let manualFixedPercent = null;
 
 const isManualChoice = () => discountSelect.value === MANUAL_OPTION;
 
@@ -853,10 +856,16 @@ function discountOptionText(discount) {
   return `${discount.code} · ${discount.label}${minimum}`;
 }
 
-// The percent field shows while "Manual discount" is chosen.
+// The percent field shows while "Manual discount" is chosen. For staff it holds the owner's
+// percentage and can't be changed.
 function updateManualFields() {
   manualDiscountFields.hidden = !isManualChoice();
-  manualDiscountHint.textContent = `A whole number from 1 to ${manualMaxPercent}.`;
+  const fixed = manualFixedPercent !== null;
+  manualPercentInput.readOnly = fixed;
+  if (fixed) manualPercentInput.value = String(manualFixedPercent);
+  manualDiscountHint.textContent = fixed
+    ? "Staff give the percentage the owner set on the Discounts page."
+    : `A whole number from 1 to ${MANUAL_MAX_PERCENT}.`;
 }
 
 // Fills the dropdown with the coupons that can be used today, then "Manual discount" when the
@@ -868,13 +877,16 @@ async function loadAvailableDiscounts() {
   ]);
   if (coupons.status === "rejected") console.error("Discount List Error:", coupons.reason);
   if (manual.status === "rejected") console.error("Manual Discount Error:", manual.reason);
-  manualMaxPercent = manual.status === "fulfilled" ? Number(manual.value.maxPercent) || 0 : 0;
+  const fixedPercent = manual.status === "fulfilled" ? manual.value.fixedPercent : 0;
+  manualFixedPercent = fixedPercent == null ? null : Number(fixedPercent) || 0;
+  manualAllowed = manualFixedPercent !== 0;
+  if (!manualAllowed) manualFixedPercent = null;
 
   const options = (coupons.status === "fulfilled" ? coupons.value : [])
     .map(discount => new Option(discountOptionText(discount), discount.code));
-  if (manualMaxPercent > 0) {
-    const limit = manualMaxPercent < 100 ? ` · up to ${manualMaxPercent}%` : "";
-    options.push(new Option(`Manual discount${limit}`, MANUAL_OPTION));
+  if (manualAllowed) {
+    const percent = manualFixedPercent !== null ? ` · ${manualFixedPercent}%` : "";
+    options.push(new Option(`Manual discount${percent}`, MANUAL_OPTION));
   }
   const placeholder = coupons.status === "rejected" ? "Coupons could not be loaded"
     : options.length ? "Choose a discount"
@@ -935,12 +947,13 @@ function showDiscountProblem(field, message) {
   announce(message);
 }
 
-// Returns the percent off, or null after pointing at the field. The server checks the same rule
-// (ManualDiscount.Problem).
+// Returns the percent off, or null after pointing at the field. Staff always give the owner's
+// percentage. The server checks the same rule (ManualDiscount.Problem).
 function readManualPercent() {
+  if (manualFixedPercent !== null) return manualFixedPercent;
   const percent = Number(manualPercentInput.value);
-  if (!manualPercentInput.value || !Number.isInteger(percent) || percent < 1 || percent > manualMaxPercent) {
-    showDiscountProblem(manualPercentInput, `Enter the percent off, from 1 to ${manualMaxPercent}.`);
+  if (!manualPercentInput.value || !Number.isInteger(percent) || percent < 1 || percent > MANUAL_MAX_PERCENT) {
+    showDiscountProblem(manualPercentInput, `Enter the percent off, from 1 to ${MANUAL_MAX_PERCENT}.`);
     return null;
   }
   return percent;
@@ -997,7 +1010,7 @@ async function applyDiscount(event) {
     console.error("Discount Error:", error);
     showDiscountProblem(manual ? manualPercentInput : discountSelect,
       error.status ? error.message : "Cannot connect to the server. Please try again.");
-    // The coupon may have been turned off or used up, or the manual limit changed, so the list is refreshed.
+    // The coupon may have been turned off or used up, or the staff percentage changed, so the list is refreshed.
     if (error.status) loadAvailableDiscounts();
   } finally {
     restore();
@@ -1084,10 +1097,6 @@ function confirmCancelCheckout() {
 ========================= */
 let salePending = false;
 let receiptTx = null;
-// The sale as the server saved it ({ transactionId, referenceId, totalAmount, paymentMethod }),
-// for Void Sale on the receipt prompt.
-let receiptSale = null;
-const receiptVoidBtn = document.getElementById("receiptVoidBtn");
 
 function generateReferenceId() {
   return 'REF-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
@@ -1127,13 +1136,13 @@ function buildTransaction(method, received = null, change = null, refId = null) 
 
 // Saves the sale with one request: the server takes the stock and saves the sale together
 // (TransactionController.SaveTransaction), so a sale that fails changes nothing and can be tried again.
-// Returns { saved: true, sale }, { saved: false } after showing the error, { discountProblem } when the
+// Returns { saved: true }, { saved: false } after showing the error, { discountProblem } when the
 // discount can no longer be used, or { stockProblem: true } when the shop no longer has enough of an
 // item (another till sold it, or it was edited or archived).
 async function processCheckout(tx) {
   try {
     // The code may have been turned off, used up or expired since it was applied, or the owner may
-    // have lowered the manual discount limit. This gives a clear answer before the sale is sent;
+    // have changed the staff manual discount. This gives a clear answer before the sale is sent;
     // the server checks once more while saving it.
     if (tx.discountCode || tx.manualDiscountPercent) {
       try {
@@ -1161,18 +1170,8 @@ async function processCheckout(tx) {
     }
     if (!transactionRes.ok) throw new Error(`Transaction could not be saved (${transactionRes.status})`);
 
-    // The saved sale, for Void Sale on the receipt prompt (the server works out the total).
-    const result = await transactionRes.json().catch(() => ({}));
     console.log("Sale saved.");
-    return {
-      saved: true,
-      sale: result.transactionId ? {
-        transactionId: result.transactionId,
-        referenceId: result.referenceId || tx.referenceId,
-        totalAmount: result.totalAmount ?? tx.total_amount,
-        paymentMethod: result.paymentMethod || tx.payment_method
-      } : null
-    };
+    return { saved: true };
   } catch (err) {
     console.error("Error during checkout:", err);
     showToast("Checkout failed. Please try again.", true);
@@ -1190,7 +1189,7 @@ async function completeSale(tx, modalId, submitButton) {
   submitButton.setAttribute("aria-disabled", "true");
   submitButton.textContent = "Saving...";
 
-  const { saved, sale, discountProblem, stockProblem } = await processCheckout(tx);
+  const { saved, discountProblem, stockProblem } = await processCheckout(tx);
   // Still pending, so this refresh leaves the checkout alone until it is checked below.
   if (stockProblem) await loadProducts({ quiet: true });
 
@@ -1229,8 +1228,6 @@ async function completeSale(tx, modalId, submitButton) {
   const returnFocus = hideModal(modalId, { restore: false });
   clearCheckout();
   receiptTx = tx;
-  receiptSale = sale;
-  receiptVoidBtn.hidden = !sale;
   showModal("receiptModal", returnFocus);
   announce("Payment complete. The sale was saved.");
   // Shows the stock this sale left right away, without waiting for (or depending on) the live update.
@@ -1366,25 +1363,10 @@ function finishReceipt(print) {
   if (print && !printReceipt(receiptTx)) return;
   hideModal("receiptModal");
   receiptTx = null;
-  receiptSale = null;
-}
-
-// The customer changed their mind: void-sale.js asks for the reason, voids the sale (its items go
-// back into stock) and tells the cashier what to give back. Later on, the sale can still be voided
-// from the Sales Record within 30 minutes.
-function voidReceiptSale() {
-  if (!receiptSale) return;
-  openVoidForm(receiptSale, {
-    onVoided: () => {
-      finishReceipt(false);
-      loadProducts({ quiet: true });
-    }
-  });
 }
 
 document.getElementById("receiptYesBtn").addEventListener("click", () => finishReceipt(true));
 document.getElementById("receiptNoBtn").addEventListener("click", () => finishReceipt(false));
-receiptVoidBtn.addEventListener("click", voidReceiptSale);
 
 /* =========================
    PAGE LOAD
@@ -1407,5 +1389,5 @@ loadProducts();
 // a reload, and the checkout is fitted to the new stock.
 Live.on(["products", "exchanges"], () => loadProducts({ quiet: true }));
 // So do coupons the owner creates, turns off or deletes, ones that get used up, and changes to the
-// staff manual discount limit.
+// staff manual discount percentage.
 Live.on(["discounts"], loadAvailableDiscounts);

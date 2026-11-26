@@ -106,12 +106,12 @@ namespace Crooked.Controllers
                             total = subtotal - discountAmount;
                             await DiscountStore.RecordUseAsync(conn, dbTransaction, discount.Id);
                         }
-                        // A manual discount is checked against the signed-in person's limit (the role in
-                        // their session, never one the browser sends).
+                        // A manual discount is checked against the signed-in person's role (from their
+                        // session, never the browser): staff can only give the owner's set percentage.
                         else if (tx.ManualDiscountPercent != null)
                         {
-                            var maxPercent = await DiscountStore.ManualMaxPercentAsync(conn, dbTransaction, User);
-                            var problem = ManualDiscount.Problem(tx.ManualDiscountPercent, maxPercent);
+                            var fixedPercent = await DiscountStore.ManualFixedPercentAsync(conn, dbTransaction, User);
+                            var problem = ManualDiscount.Problem(tx.ManualDiscountPercent, fixedPercent);
                             if (problem != null)
                             {
                                 await dbTransaction.RollbackAsync();
@@ -191,17 +191,7 @@ namespace Crooked.Controllers
                             $"Processed sale {reference} ({string.Join(", ", details)})");
 
                         await dbTransaction.CommitAsync();
-                        // transactionId lets the POS void the sale right away (VoidTransaction).
-                        return Ok(new
-                        {
-                            message = "Transaction saved successfully",
-                            tx,
-                            transactionId,
-                            referenceId = reference,
-                            totalAmount = total,
-                            discountAmount,
-                            paymentMethod
-                        });
+                        return Ok(new { message = "Transaction saved successfully", tx, totalAmount = total, discountAmount });
                     }
                     catch
                     {

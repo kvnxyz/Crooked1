@@ -92,28 +92,30 @@ namespace Crooked.Models
         };
     }
 
-    // A percentage the cashier types at the POS instead of using a coupon. Owners can give up to
-    // 100%; staff up to the limit the owner sets on the Discounts page
-    // (discount_settings.staff_max_percent, where 0 turns manual discounts off for staff).
+    // A percentage off given at the POS instead of a coupon. Owners can type any whole percentage
+    // from 1 to 100. Staff can only give the one percentage the owner sets on the Discounts page
+    // (discount_settings.staff_max_percent): if it is 5, staff give exactly 5%, never 2, 3 or 4.
+    // 0 turns manual discounts off for staff.
     // The POS works out the same amount (discountAmount in PointOfSale.js).
     public static class ManualDiscount
     {
-        public const int OwnerMaxPercent = 100;
+        public const int MaxPercent = 100;
 
         public static string Label(int percent) => StoredDiscount.LabelFor(DiscountTypes.Percent, percent);
 
         public static decimal AmountOff(decimal subtotal, int percent) => StoredDiscount.PercentOff(subtotal, percent);
 
-        // Why this discount can't be given, or null when it can. maxPercent is the signed-in
-        // person's limit (DiscountStore.ManualMaxPercentAsync).
-        public static string? Problem(int? percent, int maxPercent)
+        // Why this discount can't be given, or null when it can. fixedPercent is the percentage the
+        // signed-in person must use: null for owners, the owner's setting for staff
+        // (DiscountStore.ManualFixedPercentAsync).
+        public static string? Problem(int? percent, int? fixedPercent)
         {
-            if (maxPercent <= 0)
-                return "Manual discounts are turned off. The owner can allow them on the Discounts page.";
-            if (percent is not int value || value < 1 || value > OwnerMaxPercent)
+            if (fixedPercent == 0)
+                return "Manual discounts are turned off for staff. The owner can allow them on the Discounts page.";
+            if (percent is not int value || value < 1 || value > MaxPercent)
                 return "Enter the percent off as a whole number from 1 to 100.";
-            if (value > maxPercent)
-                return $"Staff can give at most {maxPercent}% off. Ask the owner for a bigger discount.";
+            if (fixedPercent is int staffPercent && value != staffPercent)
+                return $"Staff can only give a {staffPercent}% manual discount. Ask the owner for a different discount.";
             return null;
         }
     }
@@ -125,10 +127,10 @@ namespace Crooked.Models
         public List<TransactionItemInput> Items { get; set; } = new();
     }
 
-    // The owner's limit for staff, from the Discounts page.
+    // The percentage staff give with a manual discount, from the Discounts page (0 turns it off).
     public sealed class ManualDiscountSettingsInput
     {
-        public int StaffMaxPercent { get; set; }
+        public int StaffPercent { get; set; }
     }
 
     // The create form on the Discounts page.

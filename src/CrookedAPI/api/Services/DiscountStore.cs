@@ -66,20 +66,23 @@ namespace Crooked.Services
             await command.ExecuteNonQueryAsync();
         }
 
-        // The most a staff member can take off with a manual discount; 0 means they can't give one.
-        public static async Task<int> StaffMaxPercentAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction)
+        // The one percentage staff can give with a manual discount; 0 means they can't give one.
+        // (The column keeps its old name from when this was an upper limit.)
+        public static async Task<int> StaffPercentAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction)
         {
             await using var command = new NpgsqlCommand(
                 "SELECT staff_max_percent FROM discount_settings WHERE id = 1", connection, transaction);
             return await command.ExecuteScalarAsync() is int percent ? percent : 0;
         }
 
-        // The signed-in person's manual discount limit. Owners can give any percentage.
-        public static async Task<int> ManualMaxPercentAsync(
+        // The percentage the signed-in person must use for a manual discount, from their session's
+        // role (never the browser's): null for owners, who can give any percentage, and the owner's
+        // setting for staff (0 when they can't give one).
+        public static async Task<int?> ManualFixedPercentAsync(
             NpgsqlConnection connection, NpgsqlTransaction? transaction, ClaimsPrincipal user) =>
-            user.IsInRole(UserRoles.Owner) ? ManualDiscount.OwnerMaxPercent : await StaffMaxPercentAsync(connection, transaction);
+            user.IsInRole(UserRoles.Owner) ? null : await StaffPercentAsync(connection, transaction);
 
-        public static async Task SetStaffMaxPercentAsync(
+        public static async Task SetStaffPercentAsync(
             NpgsqlConnection connection, NpgsqlTransaction transaction, int percent, string updatedBy)
         {
             await using var command = new NpgsqlCommand(@"

@@ -1,6 +1,5 @@
-// The Void Sale form, shared by the POS (on the Payment Complete prompt) and the Sales Record (a sale's
-// details). Load it after ui.js and after layout.js (Sales Record) or PointOfSale.js (POS): both
-// define the trapFocus, restoreFocus and showDialog helpers it uses.
+// The Void Sale form, opened from a sale's details in the Sales Record. Load it after ui.js and
+// layout.js, which define the trapFocus, restoreFocus and showDialog helpers it uses.
 // A void undoes a sale within 30 minutes, when the customer changes their mind: its items go back into
 // stock and it stops counting as revenue (VoidPolicy and SaleVoids on the server). The system doesn't
 // move money, so the form tells the cashier how much to give back and how.
@@ -170,8 +169,8 @@ function openVoidForm(sale, { onVoided } = {}) {
         if (event.target === modal) requestClose();
     });
 
-    // Capture phase, so the POS or the Sales Record modal underneath doesn't also close on Escape
-    // or move focus on Tab.
+    // Capture phase, so the sale's details window underneath doesn't also close on Escape or move
+    // focus on Tab.
     voidFormKeydownHandler = event => {
         // A confirmation dialog on top of the form handles its own keys.
         if (document.getElementById('customDialog')) return;

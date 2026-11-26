@@ -7,8 +7,8 @@ using Crooked.Services;
 
 namespace Crooked.Controllers
 {
-    // Discount coupons and manual discounts. The owner creates and manages coupons, and sets how much
-    // staff can take off with a manual discount, on the Discounts page; any signed-in cashier can
+    // Discount coupons and manual discounts. The owner creates and manages coupons, and sets the one
+    // percentage staff can give with a manual discount, on the Discounts page; any signed-in cashier can
     // check a code (apply) or a manual discount (apply-manual) at the POS. The sale itself is saved by
     // TransactionController, which checks the discount again and records it.
     [Route("api/[controller]")]
@@ -219,46 +219,48 @@ namespace Crooked.Controllers
             });
         }
 
-        // Manual discount limits: maxPercent is what the signed-in person can give (0 when they can't),
-        // staffMaxPercent the owner's limit for staff. Any signed-in cashier.
+        // Manual discount settings: fixedPercent is the percentage the signed-in person must use (null for
+        // owners, who can give any; the staff percentage for staff, 0 when they can't give one), and
+        // staffPercent the owner's setting for staff. Any signed-in cashier.
         [HttpGet("manual")]
         public async Task<IActionResult> GetManualDiscount()
         {
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
-            var staffMaxPercent = await DiscountStore.StaffMaxPercentAsync(connection, null);
+            var staffPercent = await DiscountStore.StaffPercentAsync(connection, null);
             return Ok(new
             {
-                maxPercent = User.IsInRole(UserRoles.Owner) ? ManualDiscount.OwnerMaxPercent : staffMaxPercent,
-                staffMaxPercent
+                fixedPercent = User.IsInRole(UserRoles.Owner) ? (int?)null : staffPercent,
+                staffPercent
             });
         }
 
+        // Sets the one percentage staff can give with a manual discount (0 turns it off for staff).
         [Authorize(Roles = UserRoles.Owner)]
         [HttpPost("manual")]
         [LiveUpdate(LiveTopics.Discounts, LiveTopics.Activity)]
         public async Task<IActionResult> SetManualDiscount([FromBody] ManualDiscountSettingsInput input)
         {
-            var percent = input.StaffMaxPercent;
-            if (percent < 0 || percent > ManualDiscount.OwnerMaxPercent)
-                return BadRequest(new { message = "The staff limit must be a whole number from 0 to 100." });
+            var percent = input.StaffPercent;
+            if (percent < 0 || percent > ManualDiscount.MaxPercent)
+                return BadRequest(new { message = "The staff discount must be a whole number from 0 to 100." });
 
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
             await using var dbTransaction = await connection.BeginTransactionAsync();
 
             var changedBy = SessionClaims.FullNameOf(User);
-            await DiscountStore.SetStaffMaxPercentAsync(connection, dbTransaction, percent, changedBy);
+            await DiscountStore.SetStaffPercentAsync(connection, dbTransaction, percent, changedBy);
             await ActivityLog.WriteAsync(connection, dbTransaction, changedBy, ActivityTypes.Discount, percent == 0
                 ? "Turned off manual discounts for staff"
-                : $"Set the staff manual discount limit to {percent}%");
+                : $"Set the staff manual discount to {percent}%");
             await dbTransaction.CommitAsync();
             return Ok(new
             {
                 message = percent == 0
                     ? "Staff can no longer give manual discounts."
-                    : $"Staff can now give manual discounts of up to {percent}%.",
-                staffMaxPercent = percent
+                    : $"Staff can now only give a {percent}% manual discount.",
+                staffPercent = percent
             });
         }
 
@@ -272,9 +274,9 @@ namespace Crooked.Controllers
             await using var connection = new NpgsqlConnection(_connectionString);
             await connection.OpenAsync();
 
-            var maxPercent = await DiscountStore.ManualMaxPercentAsync(connection, null, User);
-            var problem = ManualDiscount.Problem(request.Percent, maxPercent);
-            if (problem != null) return Conflict(new { message = problem, maxPercent });
+            var fixedPercent = await DiscountStore.ManualFixedPercentAsync(connection, null, User);
+            var problem = ManualDiscount.Problem(request.Percent, fixedPercent);
+            if (problem != null) return Conflict(new { message = problem, fixedPercent });
 
             var percent = request.Percent!.Value;
             var subtotal = await DiscountStore.SubtotalAsync(connection, null, request.Items);
@@ -283,7 +285,7 @@ namespace Crooked.Controllers
             {
                 percent,
                 label = ManualDiscount.Label(percent),
-                maxPercent,
+                fixedPercent,
                 subtotal,
                 discountAmount = amountOff,
                 total = subtotal - amountOff
