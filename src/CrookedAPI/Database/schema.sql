@@ -210,6 +210,13 @@ ALTER TABLE users
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email
     ON users (lower(email)) WHERE email IS NOT NULL AND email <> '';
 
+-- Login lockout (LoginLockout in api/Models/User.cs): 5 wrong passwords in a row lock the account for
+-- 5 minutes (locked_until), and the owner can unlock it sooner on the Accounts page. A successful
+-- login, an unlock and a Forgot Password reset start the count again.
+ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS failed_login_attempts INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS locked_until TIMESTAMPTZ;
+
 -- Forgot Password codes: at most one per account, replaced when a new one is sent and deleted
 -- once used. Only a hash of the code is stored. A code expires 5 minutes after it is sent and
 -- stops working after 5 wrong tries (PasswordResetCodes in api/Services).

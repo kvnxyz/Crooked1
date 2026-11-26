@@ -210,8 +210,14 @@ async function login(event) {
             return;
         }
 
+        // 401: wrong details, with the tries left before a lockout; 423: the account is locked
+        // (5 wrong passwords in a row lock it for 5 minutes, unless the owner unlocks it sooner).
         const errorData = await response.json().catch(() => ({}));
         setMessage(loginMessage, errorData.message || 'Invalid username or password.', 'error');
+        if (response.status === 401 || response.status === 423) {
+            passField.value = '';
+            passField.focus();
+        }
     } catch (err) {
         setMessage(loginMessage, 'Connection failed. Check if the API is running.', 'error');
     }

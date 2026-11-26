@@ -303,7 +303,7 @@ namespace Crooked.Controllers
         }
 
         // Read-only view of one sale: what was bought and any exchanges made on it. canVoid says whether
-        // the Void Sale button shows (VoidPolicy), and voidUntil until what time.
+        // the Void Sale button shows (owners only, within VoidPolicy), and voidUntil until what time.
         [HttpGet("{transactionId:int}/details")]
         public async Task<IActionResult> GetTransactionDetails(int transactionId)
         {
@@ -319,7 +319,7 @@ namespace Crooked.Controllers
                 && ExchangePolicy.IsOpen(transaction.StoredDateTime)
                 && items.Any(item => item.Quantity == ExchangePolicy.ItemQuantity);
             var voidUntil = VoidPolicy.Until(transaction.StoredCreatedAt);
-            var canVoid = VoidPolicy.Problem(
+            var canVoid = User.IsInRole(UserRoles.Owner) && VoidPolicy.Problem(
                 transaction.StoredStatus, transaction.Status == TransactionStatuses.Exchanged,
                 transaction.StoredCreatedAt, DateTime.UtcNow) == null;
             return Ok(new
@@ -335,9 +335,10 @@ namespace Crooked.Controllers
         }
 
         // Voids a sale within VoidPolicy.WindowMinutes of saving it, when the customer changes their mind:
-        // its items go back into stock and it stops counting as revenue (SaleVoids). Any signed-in cashier
-        // can void; their name (from the session) and the reason go into the sale and the activity log.
+        // its items go back into stock and it stops counting as revenue (SaleVoids). Only owners can void;
+        // their name (from the session) and the reason go into the sale and the activity log.
         // The answer's message says what to give back to the customer.
+        [Authorize(Roles = UserRoles.Owner)]
         [HttpPost("{transactionId:int}/void")]
         [LiveUpdate(LiveTopics.Transactions, LiveTopics.Products, LiveTopics.Discounts, LiveTopics.Activity)]
         public async Task<IActionResult> VoidTransaction(int transactionId, [FromBody] VoidRequest request)

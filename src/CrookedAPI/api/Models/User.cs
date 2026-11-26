@@ -36,6 +36,28 @@
         public string Email { get; set; } = string.Empty;
     }
 
+    // Account lockout: after MaxFailedAttempts wrong passwords in a row, the account can't log in for
+    // LockMinutes, even with the right password, unless the owner unlocks it on the Accounts page.
+    // LoginAttempts (api/Services) keeps the count and the lock.
+    public static class LoginLockout
+    {
+        public const int MaxFailedAttempts = 5;
+        public const int LockMinutes = 5;
+
+        public static string WrongPasswordMessage(int triesLeft) =>
+            $"Invalid username or password. {triesLeft} {(triesLeft == 1 ? "attempt" : "attempts")} left before the account is locked for {LockMinutes} minutes.";
+
+        public static string JustLockedMessage =>
+            $"Too many failed login attempts. This account is locked for {LockMinutes} minutes. Try again later, or ask the owner to unlock it.";
+
+        public static string LockedMessage(int secondsLeft)
+        {
+            var minutes = Math.Max(1, (int)Math.Ceiling(secondsLeft / 60.0));
+            return $"This account is locked after {MaxFailedAttempts} failed login attempts. " +
+                $"Try again in {minutes} {(minutes == 1 ? "minute" : "minutes")}, or ask the owner to unlock it.";
+        }
+    }
+
     // Rules for an account's email, where Forgot Password sends its codes.
     // staff-management.js checks the same rule (isValidEmail) before a form is sent.
     public static class EmailPolicy

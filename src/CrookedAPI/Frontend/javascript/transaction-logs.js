@@ -317,7 +317,7 @@ function renderDetails({ transaction, items, exchanges, canExchange, exchangeUnt
     detailsExchangeLink.title = canExchange ? `Items can be exchanged until ${exchangeUntil}.` : '';
     detailsExchangeLink.href = `exchange.html?sale=${encodeURIComponent(transaction.referenceId || transaction.transactionId)}`;
 
-    // Only within 30 minutes of the sale (VoidPolicy on the server decides).
+    // Only for owners, within 30 minutes of the sale (the server decides).
     detailsSale = {
         transactionId: transaction.transactionId,
         referenceId: transaction.referenceId,
@@ -390,9 +390,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const role = localStorage.getItem('userRole');
     if (role && role.toLowerCase() !== 'owner') {
         document.getElementById('exportButton')?.remove();
+        // Exchanges and voids are owner-only (the server refuses them for staff too).
         detailsExchangeLink.remove();
-        document.getElementById('detailsSubtitle').textContent =
-            `Sale records can't be edited, but a sale can be voided within ${VOID_WINDOW_MINUTES} minutes.`;
+        detailsVoidButton.remove();
+        document.getElementById('detailsSubtitle').textContent = 'Sale records are read-only.';
     }
 
     const debouncedFilter = UI.debounce(applyFilters, 350);

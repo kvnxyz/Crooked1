@@ -1,7 +1,9 @@
 /* =========================
    ACCOUNTS
-   Active accounts: Name, User, Email, Role, Archive. Archived accounts: Name, User, Role, Archive.
+   Active accounts: Name, User, Email, Role, Status, Archive. Archived accounts: Name, User, Role, Archive.
    The signed-in owner's own row has no role dropdown or archive button, so there is always an owner.
+   Status shows a login lockout (5 wrong passwords in a row lock an account for 5 minutes) with an
+   Unlock button.
    For data privacy the owner can't set anyone's password here: each person changes their own from
    the profile menu (account.js) or resets it with Forgot Password, which emails a code to the
    account's email.
@@ -61,11 +63,27 @@ function archiveCell(member) {
     return UI.cell(button);
 }
 
+// "Unlocked", or a Locked badge with the time it ends and an Unlock button (LoginLockout on the server).
+function statusCell(member) {
+    if (!member.isLocked) return UI.cell('Unlocked', 'col-muted');
+
+    const content = UI.el('div', 'account-status');
+    const badge = UI.badge('Locked', 'danger');
+    content.append(badge, UI.el('span', 'col-muted', `until ${member.lockedUntil}`));
+
+    const button = UI.el('button', 'btn btn-sm btn-secondary');
+    button.type = 'button';
+    button.append(UI.icon('fa-lock-open'), 'Unlock', UI.el('span', 'visually-hidden', ` ${member.fullName}`));
+    button.addEventListener('click', () => unlockAccount(member));
+    content.appendChild(button);
+    return UI.cell(content);
+}
+
 function activeRow(member) {
     const row = document.createElement('tr');
     row.append(
         nameCell(member), UI.cell(member.username, 'col-muted'), emailCell(member),
-        roleCell(member), archiveCell(member)
+        roleCell(member), statusCell(member), archiveCell(member)
     );
     return row;
 }
@@ -77,12 +95,23 @@ function archivedRow(member) {
     return row;
 }
 
+// A lock ends by itself after 5 minutes without the server saying so, so the list is reloaded then.
+let lockRefreshTimer = null;
+
+function refreshWhenLocksEnd(accounts) {
+    clearTimeout(lockRefreshTimer);
+    const seconds = accounts.filter(member => member.isLocked).map(member => member.lockedSeconds);
+    if (seconds.length) {
+        lockRefreshTimer = setTimeout(() => fetchStaff({ quiet: true }), (Math.min(...seconds) + 1) * 1000);
+    }
+}
+
 async function fetchStaff({ quiet = false } = {}) {
     const staffBody = document.getElementById('staffTableBody');
     const archiveBody = document.getElementById('archiveTableBody');
     if (!staffBody || !archiveBody) return;
     if (!quiet) {
-        UI.tableSkeleton(staffBody, 5, 4);
+        UI.tableSkeleton(staffBody, 6, 4);
         UI.tableSkeleton(archiveBody, 4, 2);
     }
 
@@ -90,9 +119,10 @@ async function fetchStaff({ quiet = false } = {}) {
         const staff = await UI.fetchJson(`${apiBase}/api/Auth/get-staff`);
         const active = staff.filter(member => member.isActive);
         const archived = staff.filter(member => !member.isActive);
+        refreshWhenLocksEnd(active);
 
         if (active.length) UI.fillTable(staffBody, active.map(activeRow), { fade: !quiet });
-        else UI.tableMessage(staffBody, 5, {
+        else UI.tableMessage(staffBody, 6, {
             icon: 'fa-user-plus',
             title: 'No active accounts',
             message: 'Create an account above to give a staff member access.'
@@ -102,7 +132,7 @@ async function fetchStaff({ quiet = false } = {}) {
         else UI.tableMessage(archiveBody, 4, { icon: 'fa-box-archive', title: 'No archived accounts' });
     } catch (error) {
         console.error('Staff Error:', error);
-        UI.tableMessage(staffBody, 5, {
+        UI.tableMessage(staffBody, 6, {
             isError: true,
             title: 'Unable to load accounts',
             message: error.message,
@@ -146,6 +176,31 @@ async function submitRole(member, select, role) {
     // The rows are rebuilt either way, so focus goes back to this account's new dropdown.
     await fetchStaff({ quiet: true });
     document.getElementById(select.id)?.focus();
+}
+
+/* =========================
+   UNLOCK
+========================= */
+// Ends a login lockout early, so the account can log in again straight away.
+function unlockAccount(member) {
+    showDialog(
+        'Unlock Account',
+        `Unlock "${member.fullName}"? They were locked out after 5 failed login attempts. Unlock only if you know it was them.`,
+        async () => {
+            try {
+                const result = await UI.fetchJson(`${apiBase}/api/Auth/unlock/${member.id}`, { method: 'POST' });
+                showToast(result?.message || 'The account is unlocked.', false);
+            } catch (error) {
+                console.error('Unlock Account Error:', error);
+                showToast(error.status ? error.message : 'Cannot connect to the server.', true);
+            }
+            // The rows are rebuilt, so focus goes to this account's email button.
+            await fetchStaff({ quiet: true });
+            document.getElementById(`email-${member.id}`)?.focus();
+        },
+        null,
+        { confirmText: 'Unlock' }
+    );
 }
 
 /* =========================

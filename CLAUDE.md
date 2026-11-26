@@ -26,7 +26,7 @@ src/
                                 # LiveUpdates + [LiveUpdate] (Supabase Realtime broadcasts),
                                 # ProductImages (restores committed photos into the Railway volume),
                                 # EmailSender (sends email), PasswordResetCodes (Forgot Password codes),
-                                # SaleVoids (Void Sale)
+                                # SaleVoids (Void Sale), LoginAttempts (login lockout)
     Frontend/
       page/                     # one .html per page
       design/                   # one .css per page, plus dashboard.css (admin base) and components.css (shared components)
@@ -92,12 +92,12 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 
 ## Transactions and exchanges
 
-- Sale records are read-only in the Sales Record (the `transaction-logs` page), apart from Void Sale (below). The page lists 10 per page, with who made each sale (Sold By), from `GET /api/POS/Transaction/search` (search, status, payment and date filters). The owner can export the filtered sales to `.xlsx` with `/export` (one Transactions sheet; items are not included). There is no import: sales only come from the POS, so no file can add or change a sale.
+- Sale records are read-only in the Sales Record (the `transaction-logs` page), apart from the owner's Void Sale (below). The page lists 10 per page, with who made each sale (Sold By), from `GET /api/POS/Transaction/search` (search, status, payment and date filters). The owner can export the filtered sales to `.xlsx` with `/export` (one Transactions sheet; items are not included). There is no import: sales only come from the POS, so no file can add or change a sale.
 - Its summary line shows the count and, for owners, the total revenue of every matching sale ("85 transactions in total • Total Revenue: ₱42,500.00"). `/search` returns that as `totalRevenue`: completed sales only (exchanged ones included, voided and pending left out), and `null` for staff, because revenue is owner-only. It replaced the old Sales History page, which showed the same sales.
 - `transactions.payment_method` is `Cash`, `GCash` or `Unknown`.
 - An exchanged sale keeps `status = 'Completed'` (so it still counts as revenue) and gets `has_exchange = TRUE`. The API shows it as "Exchanged".
 - **Void Sale** undoes a sale when the customer changes their mind, within 30 minutes of the sale (`VoidPolicy` in api/Models/Void.cs). After that, the 3-day exchange is the only option.
-  - Any signed-in cashier, owner or staff, can void from the Sales Record's details window (the Void Sale button left of "Exchange an item", shown only while the sale can be voided). The POS has no Void button. The button opens `openVoidForm` (`void-sale.js`), which asks for a reason (three common ones or "Other" with the cashier's own words) and tells the cashier what to give back ("Give the customer back ₱810.00 in cash" / "Send ₱810.00 back to the customer's GCash"). The system records the void but doesn't move money.
+  - Only the owner can void (`[Authorize(Roles = UserRoles.Owner)]` on the endpoint, and the details' `canVoid` is false for staff). The Void Sale button is in the Sales Record's details window, left of "Exchange an item", and shows only while the sale can be voided. Staff don't see it, and their details window just says sale records are read-only. The POS has no Void button. The button opens `openVoidForm` (`void-sale.js`), which asks for a reason (three common ones or "Other" with the owner's own words) and says what to give back ("Give the customer back ₱810.00 in cash" / "Send ₱810.00 back to the customer's GCash"). The system records the void but doesn't move money.
   - `POST /api/POS/Transaction/{id}/void` calls `SaleVoids.VoidAsync` (api/Services), which undoes what `SaveTransaction` did in one database transaction: it gives the coupon its use back, puts the items back into stock (archived products too), takes the units off that day's `product_daily_sales` so the forecast ignores them, sets `status = 'Voided'` with `voided_at`, `voided_by` (the session's name) and `void_reason`, and writes a `Void` activity log entry. The rows are never deleted.
   - The 30 minutes are counted from `transactions.created_at`, which the server sets when it saves the sale (`date_time` comes from the till's clock). Sales saved before `created_at` existed can't be voided, and neither can voided or exchanged sales.
   - Revenue and the Exchanges page only use `Completed` sales, so a voided sale drops out of both by itself. The Sales Record's Status filter has "Voided", the details show who voided the sale, when and why, and Audit Trails has a "Voided sales" type.
@@ -109,7 +109,11 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 
 ## Accounts and roles
 
-- The Accounts page (`staff-management`) lists every account from `GET /api/Auth/get-staff` (owners first, `isSelf` marks the signed-in one). Active accounts have Email (Add Email / Change, `POST /api/Auth/email/{id}`), Role (an Owner/Staff dropdown, `POST /api/Auth/role/{id}`) and Archive (`toggle-archive/{id}`) columns.
+- The Accounts page (`staff-management`) lists every account from `GET /api/Auth/get-staff` (owners first, `isSelf` marks the signed-in one). Active accounts have Email (Add Email / Change, `POST /api/Auth/email/{id}`), Role (an Owner/Staff dropdown, `POST /api/Auth/role/{id}`), Status (Unlocked, or Locked until a time with an Unlock button, `POST /api/Auth/unlock/{id}`) and Archive (`toggle-archive/{id}`) columns.
+- **Login lockout** (`LoginLockout` in api/Models/User.cs, `LoginAttempts` in api/Services): 5 wrong passwords in a row lock the account for 5 minutes (`users.failed_login_attempts`, `users.locked_until`, database clock).
+  - While it is locked, `login` answers 423 without checking the password, even a right one. A wrong password answers 401 with the tries left ("2 attempts left before the account is locked for 5 minutes"). Unknown and archived usernames get the same 401 and count nothing.
+  - The try that locks the account writes a Login activity log entry ("Account locked after 5 failed login attempts") and broadcasts `staff`, so an open Accounts page shows the lock. The count starts again at 0 when it locks, so the account gets 5 fresh tries once the lock ends.
+  - The owner can end a lock early with Unlock on the Accounts page (any account, their own included; logged as "Unlocked account: ..."). A successful login and a Forgot Password reset also clear the count and the lock. The Accounts page reloads itself when a lock runs out (`lockedSeconds` from `get-staff`).
 - Passwords are private (data privacy): nobody, owners included, can set another account's password, so there is no Password column and no endpoint for it. Each person changes their own from the profile menu's Change Password (`change-password`, which asks for the current password), or resets a forgotten one with Forgot Password. A staff member with no email needs the owner to add one first.
 - Every account has an email (`users.email`), where Forgot Password sends its codes. Create Staff Account requires one (`register-staff`). Emails are saved in lower case, must pass `EmailPolicy` (api/Models/User.cs) and are unique ignoring case, archived accounts included. Accounts made before emails were required show only an Add Email button until the owner adds one, and can't use Forgot Password until then.
 - The signed-in owner can't change their own role or archive their own account, so there is always an active owner.
@@ -118,7 +122,7 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 
 - Owners and staff both use it from the login page, in two steps: `POST /api/Auth/forgot-password` emails a code to the active account with that email, then `POST /api/Auth/reset-password` takes the email, the code and the new password, and the login form fills in the account's username.
 - A code is 5 capital letters (typed in any case) and expires 5 minutes after it is sent. `PasswordResetCodes` (api/Services) keeps at most one per account in `password_reset_codes`, stored as a hash. A new code can be sent once a minute (index.js counts the same minute down on "Send a new code"); asking sooner keeps the current code. After 5 wrong tries the code stops working. Changing an account's email deletes its code.
-- `forgot-password` gives the same answer whether or not an account uses the email, so it can't be used to find out which emails have accounts. A reset writes an Account activity log entry under the account's name.
+- `forgot-password` gives the same answer whether or not an account uses the email, so it can't be used to find out which emails have accounts. A reset writes an Account activity log entry under the account's name, and ends any login lockout.
 - `EmailSender` sends the email. Set `EMAIL_FROM` (and optionally `EMAIL_FROM_NAME`) on the server, plus either `BREVO_API_KEY` (Brevo's HTTPS API) or `SMTP_HOST`, `SMTP_PORT` (default 587, STARTTLS), `SMTP_USERNAME` and `SMTP_PASSWORD` (for example smtp.gmail.com with a Gmail app password). Railway only allows outgoing SMTP on its Pro plan, so use Brevo on other plans. Without these, a local `dotnet run` (Development) writes each email, code included, to the console, and the deployed site answers that password reset emails aren't set up.
 - The old owner recovery key is gone.
 
@@ -134,7 +138,7 @@ Every page works from small phones (320px wide) up to desktops, so there is no m
 
 ## Activity logs
 
-- `activity_logs` records who did what: sales ("Processed sale ..."), voided sales ("Voided sale ..." with the reason), exchanges, product, discount and account changes, and logins and logouts. `activity_type` holds the kind (`ActivityTypes` in api/Models/Activity.cs); schema.sql sorts entries written before that column existed by their wording, and ones it doesn't recognise become `Other`. The `Import` type is only for older entries from the Excel import, which was removed.
+- `activity_logs` records who did what: sales ("Processed sale ..."), voided sales ("Voided sale ..." with the reason), exchanges, product, discount and account changes, logins and logouts, and login lockouts. `activity_type` holds the kind (`ActivityTypes` in api/Models/Activity.cs); schema.sql sorts entries written before that column existed by their wording, and ones it doesn't recognise become `Other`. The `Import` type is only for older entries from the Excel import, which was removed.
 - The owner-only `activity-logs` page (shown as Audit Trails) lists every entry, newest first, 20 per page, from `GET /api/Activity` (search, type, staff and date filters), with the Staff filter's names from `GET /api/Activity/staff`. It replaced the dashboard's old Recent Activity card.
 
 ## Sales forecasting

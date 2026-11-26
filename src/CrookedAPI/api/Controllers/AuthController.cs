@@ -19,10 +19,12 @@ namespace Crooked.Controllers
         private readonly string _connectionString = DatabaseConfig.ConnectionString;
 
         private readonly EmailSender _email;
+        private readonly LiveUpdates _live;
 
-        public AuthController(EmailSender email)
+        public AuthController(EmailSender email, LiveUpdates live)
         {
             _email = email;
+            _live = live;
         }
 
         // Same text as UI.passwordRulesText in ui.js, which the forms show before sending.
@@ -75,6 +77,10 @@ namespace Crooked.Controllers
         private void LogAccountChange(NpgsqlConnection connection, string action) =>
             ActivityLog.Write(connection, SessionClaims.FullNameOf(User), ActivityTypes.Account, action);
 
+        // Signs in an active account. After LoginLockout.MaxFailedAttempts wrong passwords in a row the
+        // account is locked for LoginLockout.LockMinutes (423, even with the right password) unless the
+        // owner unlocks it. Wrong passwords answer 401 with the tries left. Unknown and archived
+        // usernames answer the same 401 without counting anything.
         [AllowAnonymous]
         [HttpPost("login")]
         [LiveUpdate(LiveTopics.Activity)]
@@ -86,42 +92,73 @@ namespace Crooked.Controllers
                 {
                     connection.Open();
 
-                    string sql = "SELECT username, role, full_name FROM users WHERE username = @user AND password = @pass AND is_active = true";
+                    int userId;
+                    string username, role, fullName;
+                    bool passwordMatches;
+                    int lockedSeconds;
+                    const string sql = @"
+                        SELECT id, username, COALESCE(role, ''), COALESCE(full_name, ''),
+                               password = @pass,
+                               CASE WHEN locked_until > NOW()
+                                    THEN CEIL(EXTRACT(EPOCH FROM locked_until - NOW()))::int ELSE 0 END
+                        FROM users
+                        WHERE username = @user AND is_active = TRUE";
                     using (var cmd = new NpgsqlCommand(sql, connection))
                     {
-                        cmd.Parameters.AddWithValue("@user", loginRequest.Username);
-                        cmd.Parameters.AddWithValue("@pass", loginRequest.Password);
-
-                        using (var reader = cmd.ExecuteReader())
+                        cmd.Parameters.AddWithValue("@user", loginRequest.Username ?? string.Empty);
+                        cmd.Parameters.AddWithValue("@pass", loginRequest.Password ?? string.Empty);
+                        using var reader = cmd.ExecuteReader();
+                        if (!reader.Read())
                         {
-                            if (reader.Read())
-                            {
-                                string username = reader["username"].ToString() ?? string.Empty;
-                                string role = (reader["role"].ToString() ?? string.Empty).ToLowerInvariant();
-                                string fullName = reader["full_name"].ToString() ?? string.Empty;
-                                reader.Close();
-
-                                ActivityLog.Write(connection, fullName, ActivityTypes.Login, "Logged into the system");
-
-                                // The session cookie is what the API checks from now on; the role the
-                                // browser keeps in localStorage only decides which buttons it shows.
-                                var identity = new ClaimsIdentity(new[]
-                                {
-                                    new Claim(ClaimTypes.Name, username),
-                                    new Claim(ClaimTypes.Role, role),
-                                    new Claim(FullNameClaim, fullName)
-                                }, CookieAuthenticationDefaults.AuthenticationScheme);
-                                await HttpContext.SignInAsync(
-                                    CookieAuthenticationDefaults.AuthenticationScheme,
-                                    new ClaimsPrincipal(identity),
-                                    new AuthenticationProperties { IsPersistent = false });
-
-                                return Ok(new { role, fullName });
-                            }
+                            return Unauthorized(new { message = "Account archived or invalid credentials." });
                         }
+                        userId = Convert.ToInt32(reader.GetValue(0));
+                        username = reader.GetString(1);
+                        role = reader.GetString(2).ToLowerInvariant();
+                        fullName = reader.GetString(3);
+                        passwordMatches = !reader.IsDBNull(4) && reader.GetBoolean(4);
+                        lockedSeconds = reader.GetInt32(5);
                     }
+
+                    // Locked: the password isn't even checked, so guessing during the lock gets nowhere.
+                    if (lockedSeconds > 0)
+                    {
+                        return StatusCode(StatusCodes.Status423Locked, new { message = LoginLockout.LockedMessage(lockedSeconds), locked = true });
+                    }
+
+                    if (!passwordMatches)
+                    {
+                        var (locked, triesLeft) = await LoginAttempts.RecordFailureAsync(connection, userId);
+                        if (!locked)
+                        {
+                            return Unauthorized(new { message = LoginLockout.WrongPasswordMessage(triesLeft), triesLeft });
+                        }
+
+                        ActivityLog.Write(connection, fullName, ActivityTypes.Login,
+                            $"Account locked after {LoginLockout.MaxFailedAttempts} failed login attempts");
+                        // [LiveUpdate] only runs for successful answers, so the Accounts page is told here.
+                        _live.Publish(LiveTopics.Staff, LiveTopics.Activity);
+                        return StatusCode(StatusCodes.Status423Locked, new { message = LoginLockout.JustLockedMessage, locked = true });
+                    }
+
+                    await LoginAttempts.ClearAsync(connection, userId);
+                    ActivityLog.Write(connection, fullName, ActivityTypes.Login, "Logged into the system");
+
+                    // The session cookie is what the API checks from now on; the role the
+                    // browser keeps in localStorage only decides which buttons it shows.
+                    var identity = new ClaimsIdentity(new[]
+                    {
+                        new Claim(ClaimTypes.Name, username),
+                        new Claim(ClaimTypes.Role, role),
+                        new Claim(FullNameClaim, fullName)
+                    }, CookieAuthenticationDefaults.AuthenticationScheme);
+                    await HttpContext.SignInAsync(
+                        CookieAuthenticationDefaults.AuthenticationScheme,
+                        new ClaimsPrincipal(identity),
+                        new AuthenticationProperties { IsPersistent = false });
+
+                    return Ok(new { role, fullName });
                 }
-                return Unauthorized(new { message = "Account archived or invalid credentials." });
             }
             catch (Exception ex)
             {
@@ -232,7 +269,9 @@ namespace Crooked.Controllers
         }
 
         // Every account for the Accounts page: owners first, then by name. isSelf marks the signed-in
-        // account, whose role and archive buttons the page doesn't show.
+        // account, whose role and archive buttons the page doesn't show. A locked account (LoginLockout)
+        // has isLocked, lockedUntil (Philippine time) and lockedSeconds, so the page can refresh when
+        // the lock ends.
         [Authorize(Roles = UserRoles.Owner)]
         [HttpGet("get-staff")]
         public IActionResult GetStaff()
@@ -241,13 +280,18 @@ namespace Crooked.Controllers
             using (var connection = new NpgsqlConnection(_connectionString))
             {
                 connection.Open();
-                var sql = @"SELECT id, full_name, username, COALESCE(email, '') AS email, lower(role) AS role, is_active FROM users
+                var sql = @"SELECT id, full_name, username, COALESCE(email, '') AS email, lower(role) AS role, is_active,
+                                   CASE WHEN locked_until > NOW() THEN locked_until END AS locked_until,
+                                   CASE WHEN locked_until > NOW()
+                                        THEN CEIL(EXTRACT(EPOCH FROM locked_until - NOW()))::int ELSE 0 END AS locked_seconds
+                            FROM users
                             ORDER BY lower(role) = 'owner' DESC, lower(full_name), id";
                 using (var cmd = new NpgsqlCommand(sql, connection))
                 using (var reader = cmd.ExecuteReader())
                 {
                     while (reader.Read())
                     {
+                        var lockedUntil = reader["locked_until"] as DateTime?;
                         staffList.Add(new {
                             id = reader["id"],
                             fullName = reader["full_name"],
@@ -255,12 +299,56 @@ namespace Crooked.Controllers
                             email = reader["email"],
                             role = reader["role"],
                             isActive = Convert.ToBoolean(reader["is_active"]),
-                            isSelf = reader["username"] as string == User.Identity?.Name
+                            isSelf = reader["username"] as string == User.Identity?.Name,
+                            isLocked = lockedUntil != null,
+                            lockedUntil = lockedUntil is DateTime until ? ShopClock.DisplayTime(until) : null,
+                            lockedSeconds = Convert.ToInt32(reader["locked_seconds"])
                         });
                     }
                 }
             }
             return Ok(staffList);
+        }
+
+        // Ends a login lockout (LoginLockout) before its time is up, so the account can log in again
+        // straight away. The owner can unlock any account, their own included.
+        [Authorize(Roles = UserRoles.Owner)]
+        [HttpPost("unlock/{id}")]
+        [LiveUpdate(LiveTopics.Staff, LiveTopics.Activity)]
+        public async Task<IActionResult> Unlock(int id)
+        {
+            try
+            {
+                await using var connection = new NpgsqlConnection(_connectionString);
+                await connection.OpenAsync();
+
+                var account = FindAccount(connection, id);
+                if (account == null)
+                {
+                    return NotFound(new { message = "Account not found." });
+                }
+
+                bool locked;
+                await using (var check = new NpgsqlCommand(
+                    "SELECT COALESCE(locked_until > NOW(), FALSE) FROM users WHERE id = @id", connection))
+                {
+                    check.Parameters.AddWithValue("@id", id);
+                    locked = await check.ExecuteScalarAsync() is true;
+                }
+
+                await LoginAttempts.ClearAsync(connection, id);
+                if (!locked)
+                {
+                    return Ok(new { message = $"\"{account.FullName}\" isn't locked." });
+                }
+
+                LogAccountChange(connection, $"Unlocked account: {account.FullName}");
+                return Ok(new { message = $"\"{account.FullName}\" is unlocked and can log in again." });
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = ex.Message });
+            }
         }
 
         // Makes an account an owner or staff. The signed-in owner can't change their own role, so
@@ -571,7 +659,7 @@ namespace Crooked.Controllers
         // stops working.
         [AllowAnonymous]
         [HttpPost("reset-password")]
-        [LiveUpdate(LiveTopics.Activity)]
+        [LiveUpdate(LiveTopics.Staff, LiveTopics.Activity)]
         public async Task<IActionResult> ResetPassword([FromBody] ResetRequest request)
         {
             var email = EmailPolicy.Normalize(request.Email);
@@ -626,6 +714,8 @@ namespace Crooked.Controllers
                     update.Parameters.AddWithValue("@id", account.Id);
                     await update.ExecuteNonQueryAsync();
                 }
+                // The emailed code proves it is the account's owner, so a login lockout ends too.
+                await LoginAttempts.ClearAsync(connection, account.Id, transaction);
 
                 await ActivityLog.WriteAsync(connection, transaction, account.FullName, ActivityTypes.Account,
                     "Reset their password with an email code");

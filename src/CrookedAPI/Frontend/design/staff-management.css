@@ -42,6 +42,14 @@
     overflow-wrap: anywhere;
 }
 
+/* The Status column of a locked account: the Locked badge, when it ends and the Unlock button */
+.account-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 8px;
+}
+
 .email-modal-content {
     width: min(100%, 460px);
 }
@@ -92,8 +100,13 @@
         width: 100%;
     }
 
-    .account-email {
+    .account-email,
+    .account-status {
         align-items: stretch;
         flex-direction: column;
+    }
+
+    .account-status .badge {
+        align-self: flex-start;
     }
 }
